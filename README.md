@@ -8,7 +8,7 @@
 
 ![System overview](docs/overview.png)
 
-NEXUS-3 runs entirely in the browser from one `index.html`. It simulates, cycle by cycle, a late-1990s shared-memory multiprocessor: 4 to 16 discrete processor boards with private L1 and L2 caches, a split-transaction system bus with a central arbiter, and interleaved SDRAM. Three cache-coherence protocols (Dragon, MESI and write-through invalidate) can be swapped while the machine runs. Every processor cycle is charged to one CPI bucket, so you can see where the time goes. There are 12 views, an interactive 3D backplane and a small read-only query language, **ARCH#**.
+NEXUS-3 runs entirely in the browser from one `index.html`. It simulates, cycle by cycle, a late-1990s shared-memory multiprocessor: 4 to 16 discrete processor boards with private L1 and L2 caches, a split-transaction system bus with a central arbiter, and interleaved SDRAM. Three cache-coherence protocols (Dragon, MESI and write-through invalidate) can be swapped while the machine runs. Every processor cycle is charged to one CPI bucket, so you can see where the time goes. There are 13 views, an interactive 3D backplane, an analytical queueing-network model solved next to the simulation, and a small read-only query language, **ARCH#**.
 
 It follows the quantitative framework of Culler, Singh and Gupta, *Parallel Computer Architecture: A Hardware/Software Approach*, and is the sibling of [NEXUS-1](https://github.com/gregory82gr/nexus1) (nuclear plant, [live demo](https://gregory82gr.github.io/Nexus-1-phase-0)) and [NEXUS-2](https://github.com/gregory82gr/Nexus-2-phase-0) (satellite constellation). It reuses their design language.
 
@@ -61,15 +61,17 @@ There is nothing to install or build, and no server is needed. Two optional exte
 - **Interconnect & Memory.** A bus logic analyzer for the address and data phases, arbitration queues, outstanding transaction tags, the transaction mix, queuing delay against utilization, and the SDRAM banks.
 - **Latency Lab & Workloads.** MSHR depth, stride prefetcher, block size, L2 size and memory consistency model, six workloads, and a comparator that runs all three protocols on the current configuration.
 - **Digital Twin.** The textbook CPI prediction (blocking misses plus M/D/1 bus queueing) set against the simulation, component by component.
+- **Queueing Model.** The whole machine as a closed queueing network (processors, address bus, SDRAM banks, data bus), solved with exact Mean Value Analysis. It sets open M/M/1 and M/D/1, two MVA variants and the simulation side by side, finds the bottleneck and the saturation point N*, draws the scalability curve for 1 to 32 processors, and has what-if sliders and histograms that check the Poisson assumption.
 - **Root-Cause Graph.** A causal graph from configuration to lost throughput. Edges animate while a cause is driving its effect.
 - **ARCH# & Audit Log.** See [below](#arch).
 
 ![Interconnect and memory](docs/interconnect.png)
 ![Latency lab and protocol comparator](docs/lab.png)
+![Queueing model](docs/queue.png)
 ![Root-cause graph](docs/rcgraph.png)
 
 ### Support
-- **Help & Guide.** Four illustrated tabs: SMP versus multicore, a protocol atlas with timing charts, the anatomy of latency tolerance and overhead, and the ARCH# reference with console operations.
+- **Help & Guide.** Six illustrated tabs: SMP versus multicore, a protocol atlas with timing charts, the anatomy of latency tolerance and overhead, inside the core, an extended chapter on queueing theory (Kendall notation, the operational laws, M/M/1, M/D/1, closed networks, MVA, bounds, and a worked example with live numbers), and the ARCH# reference with console operations.
 - **About.** Author, scope, the Phase 0 roadmap and a standards-awareness table.
 
 ---
@@ -85,9 +87,10 @@ get cpus.cpi                                   # one value per processor
 mean(cpus.cpi)
 max(cpus.cpi_bus_stall)                        # also reports which CPU
 get cpus where cpi_coherence > 1.2 select cpi  # filter
+get qnet.n_star                                # queueing model: saturation point
 ```
 
-Scopes are `sys`, `bus`, `mem`, `cpu`, `cpu[k]`, `cache`, `cache[k]`, `cpus` and `caches`. Every configuration change made through the console is appended to a SHA-256 hash-chained audit log that can be verified on the same page.
+Scopes are `sys`, `bus`, `mem`, `qnet`, `cpu`, `cpu[k]`, `cache`, `cache[k]`, `cpus` and `caches`. Every configuration change made through the console is appended to a SHA-256 hash-chained audit log that can be verified on the same page.
 
 ![ARCH# console](docs/arch.png)
 
@@ -103,6 +106,7 @@ Scopes are `sys`, `bus`, `mem`, `cpu`, `cpu[k]`, `cache`, `cache[k]`, `cpus` and
 | Bus | Split address and data phases, round-robin arbiter, 8 outstanding tags | Generic timing, one clock domain |
 | Memory | 8 interleaved SDRAM banks with a bank cycle time | Uniform latency, no refresh |
 | Latency tolerance | Lockup-free cache, stride prefetcher, SC/PC/RC write-buffer behaviour | Illustrative prefetch heuristics |
+| Queueing model | Single-class closed network, exact MVA, deterministic-service correction | Think time calibrated at the operating point; no overlap or tag-limit blocking |
 | Workloads | Long write-runs, producer-consumer, false sharing, Ocean, Barnes-Hut, lock contention | Synthetic generators, not SPLASH-2 runs |
 | Core datapath | Live addresses, cache outcomes, stalls and bus activity | Opcodes and register values are synthesized from the reference stream |
 

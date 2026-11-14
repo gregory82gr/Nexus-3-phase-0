@@ -252,6 +252,12 @@
   .frz.on{border-color:var(--cyan);color:#031014;background:var(--cyan);font-weight:700}
   @media(max-width:900px){.rgrid{grid-template-columns:repeat(2,1fr)}}
 
+  input[type=range]{accent-color:var(--cyan);width:100%;min-width:120px;background:transparent}
+  .wfrow{display:grid;grid-template-columns:150px 1fr 74px;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);font-size:10.5px}
+  .wfrow:last-child{border-bottom:0}.wfrow label{color:var(--text-dim)}.wfrow output{color:#eafdff;text-align:right;font-variant-numeric:tabular-nums}
+  .eq{font-family:var(--f-mono);font-size:12.5px;color:#eafdff;background:#05090a;border:1px solid var(--line-hot);border-left:3px solid var(--cyan);border-radius:4px;padding:8px 12px;margin:8px 0 10px;overflow-x:auto;white-space:nowrap}
+  .eq i{font-style:normal;color:var(--text-dim);margin-left:14px;font-size:10.5px}
+
   /* ===== cards ===== */
   .typecard{border:1px solid var(--line);border-radius:6px;padding:13px;cursor:pointer;transition:.15s;background:rgba(255,255,255,.012);text-align:left;font-family:inherit;color:inherit;display:block;width:100%}
   .typecard:hover{border-color:var(--cyan);background:rgba(34,211,238,.05)}
@@ -372,6 +378,7 @@
     <section class="page" data-page="interconnect"></section>
     <section class="page" data-page="lab"></section>
     <section class="page" data-page="twin"></section>
+    <section class="page" data-page="queue"></section>
     <section class="page" data-page="rcgraph"></section>
     <section class="page" data-page="arch"></section>
     <section class="page" data-page="help"></section>
@@ -393,9 +400,9 @@ var PENDING=1,PFF=2,COHINV=4;
 var RD=1,RDX=2,UPG=3,UPD=4,WR=5,WB=6;
 var KN=['','BusRd','BusRdX','BusUpgr','BusUpd','BusWr','WriteBack'];
 var COMPUTE=1,LOAD=2,STORE=3,LOCKACQ=4,LOCKREL=5,BARRIER=6;
-var NC=34,NB=40;
+var NC=34,NB=46;
 var CI={instr:0,base:1,local:2,coh:3,bus:4,sync:5,loads:6,stores:7,l1miss:8,l2miss:9,cold:10,cohm:11,ts:12,fs:13,upg:14,upd:15,rdx:16,rd:17,wr:18,wb:19,pfIss:20,pfUse:21,pfBad:22,invRecv:23,updRecv:24,fence:25,wbFull:26,mshrFull:27,spin:28,c2c:29,rob:30,txWait:31,txN:32,l2hit:33};
-var BI={cyc:0,addr:1,data:2,any:3,tx:4,oh:5,busy:6,qsum:7,osum:8,wsum:9,wn:10,rsum:11,rn:12,pftx:13,mwait:14,macc:15,kRD:16,kRDX:17,kUPG:18,kUPD:19,kWR:20,kWB:21,c2c:22,cancel:23,bacc:24,bbusy:32};
+var BI={cyc:0,addr:1,data:2,any:3,tx:4,oh:5,busy:6,qsum:7,osum:8,wsum:9,wn:10,rsum:11,rn:12,pftx:13,mwait:14,macc:15,kRD:16,kRDX:17,kUPG:18,kUPD:19,kWR:20,kWB:21,c2c:22,cancel:23,bacc:24,bbusy:32,rsp:40,rspn:41,dwait:42,dwn:43};
 var STN={MESI:['I','S','E','M','?'],DRAGON:['–','Sc','E','M','Sm'],WTI:['I','V','V','V','V']};
 
 var PROFILES={
@@ -451,7 +458,10 @@ P.build=function(){
   this.log=[];this.logSeq=0;
   this.tlog=[];this.tcount={};
   this.txid=0;this.itrace=[];this.iseq=0;this.lres=0;
+  this.qreset();
 };
+/* distributions for the Queueing Model view: grant wait and request inter-arrival, in bus cycles */
+P.qreset=function(){this.qs={hW:new Uint32Array(50),hI:new Uint32Array(50),wS:0,wS2:0,wN:0,iS:0,iS2:0,iN:0,last:-1};};
 
 P.rnd=function(){var s=this.seed;s^=s<<13;s^=s>>>17;s^=s<<5;this.seed=s>>>0;return this.seed/4294967296;};
 P.find=function(cc,b){var s=(b&cc.setMask)<<1;if(cc.tag[s]===b)return s;if(cc.tag[s+1]===b)return s+1;return -1;};
@@ -468,7 +478,7 @@ P.invalidate=function(cc,li,cause){
   K[o+CI.invRecv]++;
 };
 P.newTx=function(c,kind,b,w){return{id:++this.txid,cpu:c,kind:kind,b:b,w:w,req:this.now,grant:-1,ready:Infinity,doneAt:Infinity,phase:0,done:false,cancel:false,coh:false,pf:false,mshr:false,rob:0,forStore:false,src:-2,li:-1,fsh:false};};
-P.enqueue=function(tx){var q=this.q[tx.cpu];if(tx.pf){q.push(tx);return;}var i=q.length;while(i>0&&q[i-1].pf)i--;q.splice(i,0,tx);};
+P.enqueue=function(tx){var q=this.q[tx.cpu],Z=this.qs;if(Z.last>=0){var dt=this.now-Z.last;Z.hI[dt>49?49:dt]++;Z.iS+=dt;Z.iS2+=dt*dt;Z.iN++;}Z.last=this.now;if(tx.pf){q.push(tx);return;}var i=q.length;while(i>0&&q[i-1].pf)i--;q.splice(i,0,tx);};
 P.evict=function(cc,li){
   var b=cc.tag[li];if(b<0)return;
   var K=this.K,o=cc.id*NC,s=cc.st[li];
@@ -719,7 +729,7 @@ P.memAccess=function(b,from){
 P.grant=function(tx){
   var now=this.now,K=this.K,B=this.BO,pr=this.cfg.proto,n=this.cfg.ncpu,cc=this.cpu[tx.cpu],o=tx.cpu*NC,i,oc,lo,s;
   tx.grant=now;tx.phase=1;
-  K[B+BI.wsum]+=now-tx.req;K[B+BI.wn]++;K[o+CI.txWait]+=now-tx.req;K[o+CI.txN]++;
+  K[B+BI.wsum]+=now-tx.req;K[B+BI.wn]++;var wq=now-tx.req,Z=this.qs;Z.hW[wq>49?49:wq]++;Z.wS+=wq;Z.wS2+=wq*wq;Z.wN++;K[o+CI.txWait]+=now-tx.req;K[o+CI.txN]++;
   /* protocol hot-swap may leave foreign transactions queued: normalise */
   if(pr!=='MESI'){if(tx.kind===RDX)tx.kind=RD;else if(tx.kind===UPG)tx.cancel=true;}
   if(pr!=='DRAGON'&&tx.kind===UPD)tx.cancel=true;
@@ -782,6 +792,7 @@ P.grant=function(tx){
 };
 P.complete=function(tx){
   var cc=this.cpu[tx.cpu];tx.done=true;tx.phase=4;
+  this.K[this.BO+BI.rsp]+=tx.doneAt-tx.req;this.K[this.BO+BI.rspn]++;
   if(tx.mshr){cc.nMshr--;var i=cc.out.indexOf(tx);if(i>=0)cc.out.splice(i,1);}
   if((tx.kind===RD||tx.kind===RDX)&&tx.li>=0&&cc.tag[tx.li]===tx.b){
     cc.fl[tx.li]&=~PENDING;
@@ -796,6 +807,7 @@ P.stepBus=function(){
     for(i=0;i<f.length;i++){tx=f[i];if(tx.doneAt===Infinity&&tx.ready<=now&&(!best||tx.ready<best.ready))best=tx;}
     if(best){
       var x=(best.kind===UPD||best.kind===WR)?1:this.xfer;
+      K[B+BI.dwait]+=now-best.ready;K[B+BI.dwn]++;
       best.doneAt=now+x;best.phase=3;this.dataFree=now+x+1;this.dataKind=best.kind;this.dataCoh=best.coh||best.kind===UPD||best.kind===WR;this.dataPf=best.pf;
     }
   }
@@ -861,7 +873,7 @@ P.metrics=function(base){
   var bus={util:b('any')/cyc,addr_util:b('addr')/cyc,data_util:b('data')/cyc,overhead_ratio:b('oh')/busy,useful_ratio:1-b('oh')/busy,
     queue_depth:b('qsum')/cyc,queue_now:this.qNow||0,outstanding:b('osum')/cyc,outstanding_now:this.inflight.length,wait_mean:b('wsum')/Math.max(1,b('wn')),
     tx_rate:b('tx')*1000/cyc,busrd_rate:b('kRD')*1000/cyc,busrdx_rate:b('kRDX')*1000/cyc,busupgr_rate:b('kUPG')*1000/cyc,busupd_rate:b('kUPD')*1000/cyc,buswr_rate:b('kWR')*1000/cyc,writeback_rate:b('kWB')*1000/cyc,
-    c2c_rate:b('c2c')*1000/cyc,write_run:b('rn')>0?b('rsum')/b('rn'):0,write_run_n:b('rn'),pf_pollution:S.pfBad/tx,pf_tx_share:b('pftx')/tx,tx_per_instr:b('tx')/si};
+    c2c_rate:b('c2c')*1000/cyc,grant_rate:b('wn')*1000/cyc,resp_mean:b('rsp')/Math.max(1,b('rspn')),addr_wait_tx:b('wsum')/tx,data_wait_tx:b('dwait')/tx,bank_wait_tx:b('mwait')/tx,write_run:b('rn')>0?b('rsum')/b('rn'):0,write_run_n:b('rn'),pf_pollution:S.pfBad/tx,pf_tx_share:b('pftx')/tx,tx_per_instr:b('tx')/si};
   var bu=[],ba=[];for(i=0;i<T.BANKS;i++){bu.push(d(B+BI.bbusy+i)/cyc);ba.push(d(B+BI.bacc+i)*1000/cyc);}
   var mem={wait_mean:b('mwait')/Math.max(1,b('macc')),access_rate:b('macc')*1000/cyc,bank_util:bu,bank_rate:ba,util:bu.reduce(function(a,x){return a+x;},0)/T.BANKS};
   var sys={cycle:this.now,window:cyc,ncpu:n,ipc:S.instr/cyc,cpi:n*cyc/si,cpi_base:S.base/si,cpi_local:S.local/si,cpi_coherence:S.coh/si,cpi_bus:S.bus/si,cpi_sync:S.sync/si,
@@ -1100,7 +1112,7 @@ var FX=NX.FX={list:[],seen:0,
 var NAV=[
   {g:'system',label:'System',ic:'&#9635;',open:true,items:[['overview','System Overview'],['backplane','3D SMP Hardware'],['training','Training Mode','DRILL']]},
   {g:'cpu',label:'Processor',ic:'&#9672;',open:true,items:[['inspector','CPU &amp; Snoop Inspector'],['datapath','Core Datapath']]},
-  {g:'ops',label:'Interconnect &amp; Analysis',ic:'&#9650;',open:true,items:[['interconnect','Interconnect &amp; Memory'],['lab','Latency Lab &amp; Workloads'],['twin','Digital Twin'],['rcgraph','Root-Cause Graph'],['arch','ARCH# &amp; Audit Log','&beta;']]},
+  {g:'ops',label:'Interconnect &amp; Analysis',ic:'&#9650;',open:true,items:[['interconnect','Interconnect &amp; Memory'],['lab','Latency Lab &amp; Workloads'],['twin','Digital Twin'],['queue','Queueing Model'],['rcgraph','Root-Cause Graph'],['arch','ARCH# &amp; Audit Log','&beta;']]},
   {g:'support',label:'Support',ic:'&#10067;',open:true,items:[['help','Help &amp; Guide'],['about','About NEXUS-3']]}
 ];
 function buildNav(){
@@ -1733,7 +1745,7 @@ NX.page_('datapath',{title:'CPU Core Datapath & Registers',scope:'cpu',
   build:function(el){
     var rg='';for(var i=0;i<32;i++)rg+='<div class="rg" id="dp-r'+i+'"><span>r'+i+' '+RN[i]+'<i id="dp-p'+i+'">p'+i+'</i></span><b id="dp-v'+i+'">—</b></div>';
     el.innerHTML=panel('Core datapath · live information flow','<span id="dp-tag">—</span>',
-      '<div class="btnrow" style="margin-bottom:10px"><button class="btn dp-frz" aria-pressed="false">Freeze ❚❚</button><button class="btn" id="dp-step">Step 1 bus cycle</button><button class="btn" id="dp-live">Run live</button><span class="frz" id="dp-state">Live</span><span class="note" style="margin-left:auto">Freeze holds this view; the machine keeps running. Step pauses the whole simulation and advances it one cycle.</span></div>'+
+      '<div class="btnrow" style="margin-bottom:10px"><button class="btn dp-frz" aria-pressed="false">Freeze ❚❚</button><button class="btn" id="dp-step">Step 1 bus cycle</button><button class="btn" id="dp-live">Run live</button><span class="frz" id="dp-state">Live</span><span class="note" style="margin-left:auto">Freeze holds this view; the machine keeps running. Step pauses the whole simulation and advances it one cycle. <a href="#help" id="dp-help">Guide →</a></span></div>'+
       '<div class="stage"><canvas id="dp-cv" style="height:478px;min-width:920px"></canvas></div>'+
       '<div class="kin-legend"><span><i class="dot" style="background:'+COL.green+';color:'+COL.green+'"></i>integer ALU op</span><span><i class="dot" style="background:'+COL.magenta+';color:'+COL.magenta+'"></i>branch / call</span><span><i class="dot" style="background:'+COL.cyan+';color:'+COL.cyan+'"></i>load</span><span><i class="dot" style="background:'+COL.amber+';color:'+COL.amber+'"></i>store</span><span><i class="dot" style="background:'+COL.violet+';color:'+COL.violet+'"></i>floating point</span><span>the bright route is the instruction shown bottom-left</span></div>'+
       '<div class="scope">The engine simulates each processor\'s memory-reference stream, not real programs. On this page the <b>addresses, cache outcomes, stalls, active-list occupancy, write buffer, MSHRs, bus transactions and snoops are live engine state</b>. Opcodes, register numbers and register values are synthesized deterministically from that stream so the datapath has something concrete to show; base registers are set so that base + offset equals the real effective address.</div>','hot mb')+
@@ -1743,6 +1755,7 @@ NX.page_('datapath',{title:'CPU Core Datapath & Registers',scope:'cpu',
     $$('.dp-frz',el).forEach(function(b){b.addEventListener('click',function(){setFrozen(!D.frozen);});});
     $('#dp-step').addEventListener('click',function(){if(D.frozen)setFrozen(false);NX.stepOnce();});
     $('#dp-live').addEventListener('click',function(){if(D.frozen)setFrozen(false);NX.pause(false);});
+    $('#dp-help').addEventListener('click',function(e){e.preventDefault();NX.go('help');NX.helpTab('core');});
     $('#dp-clear').addEventListener('click',function(){D.log=[];D.pick=null;D.ver++;NX.dirty=true;});
     $('#dp-log').addEventListener('click',function(e){var tr=e.target.closest('tr');if(!tr)return;var s=+tr.getAttribute('data-s');for(var i=0;i<D.log.length;i++)if(D.log[i].s===s){var same=D.pick===D.log[i];if(!D.frozen)setFrozen(true);D.pick=same?null:D.log[i];D.ver++;NX.dirty=true;break;}});
   },
@@ -2019,6 +2032,184 @@ NX.page_('training',{title:'Training Mode · Guided Drills',scope:'system',
 </script>
 <script>
 /* =====================================================================
+   NEXUS-3 · Queueing Model: the SMP as a closed queueing network
+   Customers = bus transactions issued by N processors. Stations: think (delay),
+   address bus, SDRAM banks, snoop/memory latency (delay), data bus.
+   Solved with exact Mean Value Analysis and compared with open M/M/1, M/D/1
+   and with the cycle-by-cycle simulation.
+   ===================================================================== */
+(function(){
+'use strict';
+var NX=window.NEXUS3,_=NX._,$=_.$,$$=_.$$,f=_.f,pc=_.pc,fi=_.fi,panel=_.panel,stat=_.stat,setHTML=_.setHTML,setText=_.setText,setW=_.setW,ctx2d=_.ctx2d,clamp=_.clamp,pill=_.pill;
+var COL=NX.COL,T=NX.T,Engine=NX.Engine,Chart=NX.Chart,MONO='IBM Plex Mono, monospace',DISP='Chakra Petch, sans-serif';
+var CATC=['',COL.green,COL.cyan,COL.amber,COL.red,COL.violet];
+var Q={ema:null,key:'',scale:null,scaleKey:'',busy:false,timer:0,wf:{bus:1,mem:T.MEMLAT,miss:1},sig:'',M:null};
+function cfgKey(){var c=NX.cfg;return[c.ncpu,c.proto,c.blockBytes,c.l2KB,c.mshr,c.prefetch,c.consistency,c.workload].join('|');}
+function scaleKey(){var c=NX.cfg;return[c.proto,c.blockBytes,c.l2KB,c.mshr,c.prefetch,c.consistency,c.workload].join('|');}
+function raw(m){var b=m.bus;return{N:m.sys.ncpu,X:Math.max(1e-4,b.tx_rate/1000),tpi:Math.max(1e-6,b.tx_per_instr),grant:b.grant_rate/1000,fills:(b.busrd_rate+b.busrdx_rate)/1000,c2c:Math.min((b.busrd_rate+b.busrdx_rate)/1000,b.c2c_rate/1000),
+  wb:b.writeback_rate/1000,word:(b.busupd_rate+b.buswr_rate)/1000,upg:b.busupgr_rate/1000,macc:m.mem.access_rate/1000,R:b.resp_mean,x:Math.max(1,NX.cfg.blockBytes/T.BUSBYTES)};}
+function smooth(p){if(!Q.ema||Q.key!==cfgKey()){Q.ema=p;Q.key=cfgKey();return p;}for(var k in p)if(k!=='N'&&k!=='x')Q.ema[k]+=.25*(p[k]-Q.ema[k]);Q.ema.N=p.N;Q.ema.x=p.x;return Q.ema;}
+function derive(p,wf){
+  wf=wf||{bus:1,mem:T.MEMLAT,miss:1};var tx=p.X,x=p.x,mf=(p.fills-p.c2c)/tx;
+  var Zraw=p.N/tx-p.R;
+  return{N:p.N,Z:Math.max(.5,Zraw)/wf.miss,Zraw:Zraw,overlap:Zraw<.5,tpi:p.tpi*wf.miss,Xm:tx,Rm:p.R,st:[
+    {id:'addr',name:'Address bus',kd:'· / D / 1',type:'q',V:p.grant/tx,S:T.ADDR*wf.bus,D:T.ADDR*(p.grant/tx)*wf.bus},
+    {id:'bank',name:'SDRAM banks',kd:'· / D / '+T.BANKS,type:'q',V:p.macc/tx,S:T.TRC,D:(p.macc/tx)*T.TRC/T.BANKS},
+    {id:'lat',name:'Snoop + memory latency',kd:'· / G / ∞',type:'d',V:1,S:0,D:Math.max(0,mf*(T.SNOOP+wf.mem-T.ADDR)+(p.c2c/tx)*(T.SNOOP+T.C2C-T.ADDR)+(p.upg/tx)*(T.SNOOP+1-T.ADDR))},
+    {id:'data',name:'Data bus',kd:'· / D / 1',type:'q',V:(p.fills+p.wb+p.word)/tx,S:(x+1)*wf.bus,D:((p.fills+p.wb)*(x+1)+p.word*2)/tx*wf.bus}]};
+}
+/* exact single-class MVA. det=true applies the residual-service correction for deterministic FCFS servers */
+function mva(P,Nmax,det){
+  var K=P.st.length,Qk=[],U=[],out=[null],n,k;for(k=0;k<K;k++){Qk.push(0);U.push(0);}
+  var cap=Infinity;for(k=0;k<K;k++)if(P.st[k].type==='q'&&P.st[k].D>0)cap=Math.min(cap,1/P.st[k].D);   /* the corrected form is approximate: keep it under the bottleneck bound */
+  for(n=1;n<=Nmax;n++){var Rk=[],R=0;
+    for(k=0;k<K;k++){var s=P.st[k],r=s.type==='d'?s.D:det?s.D*(1+Qk[k]-U[k])+U[k]*s.D/2:s.D*(1+Qk[k]);Rk.push(r);R+=r;}
+    var X=Math.min(n/(P.Z+R),cap);for(k=0;k<K;k++){Qk[k]=Math.min(n,X*Rk[k]);U[k]=P.st[k].type==='d'?0:Math.min(1,X*P.st[k].D);}
+    out.push({n:n,X:X,R:R,Rk:Rk,Q:Qk.slice(),U:U.slice()});}
+  return out;
+}
+function openNet(P,md){var R=0,w=[],ok=true;P.st.forEach(function(s){if(s.type==='d'){R+=s.D;w.push(0);return;}var rho=P.Xm*s.D;if(rho>=1){ok=false;w.push(Infinity);R=Infinity;return;}var wq=md?rho*s.D/(2*(1-rho)):rho*s.D/(1-rho);w.push(wq);R+=s.D+wq;});return{R:R,w:w,ok:ok};}
+function model(m,wf){
+  var p=Q.ema&&Q.key===cfgKey()?Q.ema:raw(m),P=derive(p,wf),N=P.N,ex=mva(P,32,false),dt=mva(P,32,true),Dsum=0,Dmax=0,bn=0;
+  P.st.forEach(function(s,i){Dsum+=s.D;if(s.type==='q'&&s.D>Dmax){Dmax=s.D;bn=i;}});
+  var M={P:P,p:p,ex:ex,dt:dt,N:N,Dsum:Dsum,Dmax:Dmax,bn:bn,nstar:(P.Z+Dsum)/Math.max(1e-9,Dmax),xbound:1/Math.max(1e-9,Dmax),mm1:openNet(P,false),md1:openNet(P,true)};
+  M.ipc_mva=dt[N].X/P.tpi;M.ipc_meas=m.sys.ipc;
+  M.arch={think_time:P.Z,d_addr:P.st[0].D,d_bank:P.st[1].D,d_latency:P.st[2].D,d_data:P.st[3].D,n_star:M.nstar,x_bound:M.xbound*1000,x_mva:dt[N].X*1000,x_measured:P.Xm*1000,ipc_mva:M.ipc_mva,r_mva:dt[N].R,r_mva_exp:ex[N].R,r_mm1:M.mm1.R,r_md1:M.md1.R,r_measured:P.Rm,
+    wq_addr_mm1:M.mm1.w[0],wq_addr_md1:M.md1.w[0],wq_addr_mva:dt[N].Rk[0]-P.st[0].D,wq_addr_measured:m.bus.addr_wait_tx,rho_addr:P.Xm*P.st[0].D,rho_data:P.Xm*P.st[3].D,bottleneck:P.st[bn].name};
+  return M;
+}
+NX.qnet=model;
+function runScale(){
+  if(Q.busy)return;Q.busy=true;var key=scaleKey(),res={},ns=[4,8,16],i=0;setText('qm-sc','measuring 4, 8 and 16 CPUs …');
+  (function next(){if(i>=3){Q.scale=res;Q.scaleKey=key;Q.busy=false;NX.dirty=true;return;}
+    var c={};for(var k in NX.cfg)c[k]=NX.cfg[k];c.ncpu=ns[i];var e=new Engine(c);e.step(30000);var mk=e.mark();e.step(20000);res[ns[i]]=e.metrics(mk).sys.ipc;i++;setTimeout(next,10);})();
+}
+function rr(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.lineTo(x+w-r,y);c.quadraticCurveTo(x+w,y,x+w,y+r);c.lineTo(x+w,y+h-r);c.quadraticCurveTo(x+w,y+h,x+w-r,y+h);c.lineTo(x+r,y+h);c.quadraticCurveTo(x,y+h,x,y+h-r);c.lineTo(x,y+r);c.quadraticCurveTo(x,y,x+r,y);c.closePath();}
+function drawNet(cv,ts){
+  var c=ctx2d(cv),W=c.W,eng=NX.eng,m=NX.m,M=Q.M,n=NX.cfg.ncpu,i;if(!M)return;
+  var gap=(W-28)*.035,bw=(W-28-3*gap)/4,y0=26,bh=148,X=function(k){return 14+k*(bw+gap);},N=M.N,d=M.dt[N],P=M.P;
+  var names=['THINK · '+n+' PROCESSORS','ADDRESS BUS','SNOOP + SDRAM','DATA BUS'],kd=['delay · Z = '+f(P.Z,1)+' cycles',P.st[0].kd+' · S = '+f(P.st[0].S,1),'delay + '+P.st[1].kd+' banks',P.st[3].kd+' · S = '+f(P.st[3].S,1)];
+  var ph=NX.running?(ts*.03)%12:0;
+  c.textBaseline='middle';
+  for(i=0;i<4;i++){var hot=(i===1&&M.bn===0)||(i===3&&M.bn===3)||(i===2&&M.bn===1);
+    c.fillStyle='#0c1416';c.strokeStyle=hot?COL.amber:COL.hot;c.lineWidth=hot?1.6:1;rr(c,X(i),y0,bw,bh,6);c.fill();c.stroke();
+    c.fillStyle=COL.white;c.font='700 10.5px '+DISP;c.textAlign='left';c.fillText(names[i],X(i)+9,y0+13);
+    c.fillStyle=COL.dim;c.font='8.5px '+MONO;c.fillText(kd[i],X(i)+9,y0+27);
+    if(hot){c.fillStyle=COL.amber;c.font='700 8px '+DISP;c.textAlign='right';c.fillText('BOTTLENECK',X(i)+bw-8,y0+13);}
+    if(i<3){c.strokeStyle=COL.cyan;c.globalAlpha=.6;c.setLineDash([5,7]);c.lineDashOffset=-ph;c.beginPath();c.moveTo(X(i)+bw,y0+70);c.lineTo(X(i+1),y0+70);c.stroke();c.setLineDash([]);c.globalAlpha=1;
+      c.fillStyle=COL.cyan;c.beginPath();c.moveTo(X(i+1),y0+70);c.lineTo(X(i+1)-7,y0+66);c.lineTo(X(i+1)-7,y0+74);c.fill();}}
+  /* return path */
+  c.strokeStyle=COL.cyan;c.globalAlpha=.6;c.setLineDash([5,7]);c.lineDashOffset=ph;c.beginPath();c.moveTo(X(3)+bw/2,y0+bh);c.lineTo(X(3)+bw/2,y0+bh+24);c.lineTo(X(0)+bw/2,y0+bh+24);c.lineTo(X(0)+bw/2,y0+bh+2);c.stroke();c.setLineDash([]);c.globalAlpha=1;
+  c.fillStyle=COL.dim;c.font='8.5px '+MONO;c.textAlign='center';c.fillText('transaction complete → the processor computes again · throughput X = '+f(P.Xm*1000,0)+' tx / kcycle measured, '+f(d.X*1000,0)+' MVA',W/2,y0+bh+36);
+  /* think station: one dot per CPU */
+  var cols=n>8?8:n,dx=Math.min(26,(bw-18)/cols),run=0;
+  for(i=0;i<n;i++){var cat=eng.cpu[i].lastCat,px=X(0)+9+dx/2+(i%cols)*dx,py=y0+52+Math.floor(i/cols)*24;if(cat===1)run++;
+    c.fillStyle=cat===1?COL.green:'#10181a';c.strokeStyle=CATC[cat];c.lineWidth=1.5;c.beginPath();c.arc(px,py,7,0,6.3);c.fill();c.stroke();if(i===NX.sel){c.strokeStyle=COL.white;c.beginPath();c.arc(px,py,10,0,6.3);c.stroke();}}
+  c.textAlign='left';c.fillStyle=COL.text;c.font='9px '+MONO;c.fillText(run+' of '+n+' executing now',X(0)+9,y0+112);
+  c.fillStyle=COL.dim;c.fillText('model: '+f(d.X*P.Z,1)+' thinking on average',X(0)+9,y0+126);if(P.overlap){c.fillStyle=COL.amber;c.fillText('overlap regime · Z floored',X(0)+9,y0+139);}
+  /* queue + server glyph */
+  var qs=function(k,waiting,busy,col){var sx=X(k)+bw-26,sy=y0+62,slots=Math.max(4,Math.min(14,Math.floor((bw-54)/11)));
+    for(var j=0;j<slots;j++){var qx=sx-22-j*11;c.fillStyle=j<waiting?col:COL.line;c.fillRect(qx,sy-8,9,16);}
+    if(waiting>slots){c.fillStyle=COL.red;c.font='8px '+MONO;c.textAlign='left';c.fillText('+'+(waiting-slots),X(k)+9,sy-16);}
+    c.strokeStyle=busy?col:COL.hot;c.lineWidth=1.6;c.fillStyle=busy?col:'#0c1416';c.globalAlpha=busy?.85:1;c.beginPath();c.arc(sx,sy,11,0,6.3);c.fill();c.globalAlpha=1;c.stroke();};
+  var qa=0,p1=0,p2=0;for(i=0;i<n;i++)qa+=eng.q[i].length;eng.inflight.forEach(function(t){if(t.phase===1)p1++;else if(t.phase===2)p2++;});
+  qs(1,qa,eng.addrFree>eng.now,COL.red);qs(3,p2,eng.dataFree>eng.now,COL.cyan);
+  for(i=0;i<Math.min(p1,T.MAXOUT);i++){c.fillStyle=COL.violet;c.beginPath();c.arc(X(2)+16+i*15,y0+52,5,0,6.3);c.fill();}
+  for(i=0;i<T.BANKS;i++){var rem=eng.bankFree[i]-eng.now;c.fillStyle=rem>T.TPRE?COL.cyan:rem>0?COL.violet:COL.line;c.fillRect(X(2)+9+i*((bw-18)/T.BANKS),y0+68,(bw-18)/T.BANKS-2,10);}
+  /* model vs measured lines */
+  var ln=function(k,a,b){c.textAlign='left';c.font='9px '+MONO;c.fillStyle=COL.text;c.fillText(a,X(k)+9,y0+112);c.fillStyle=COL.dim;c.fillText(b,X(k)+9,y0+126);};
+  ln(1,'U  model '+pc(d.U[0])+' %  ·  measured '+pc(m.bus.addr_util)+' %','wait model '+f(d.Rk[0]-P.st[0].D,1)+'  ·  measured '+f(m.bus.addr_wait_tx,1)+' cyc');
+  ln(2,'banks U model '+pc(d.U[1])+' %  ·  measured '+pc(m.mem.util)+' %','latency '+f(P.st[2].D,1)+' cyc / tx  ·  bank wait '+f(m.bus.bank_wait_tx,1));
+  ln(3,'U  model '+pc(d.U[3])+' %  ·  measured '+pc(m.bus.data_util)+' %','wait model '+f(d.Rk[3]-P.st[3].D,1)+'  ·  measured '+f(m.bus.data_wait_tx,1)+' cyc');
+  c.fillStyle=COL.mute;c.font='8px '+MONO;c.fillText('in service: '+p1+' of '+T.MAXOUT+' tags',X(2)+9,y0+139);c.fillText('waiting: '+qa,X(1)+9,y0+139);c.fillText('waiting: '+p2,X(3)+9,y0+139);
+}
+function drawScale(cv){
+  var M=Q.M,c=ctx2d(cv);if(!M)return;var P=M.P,wfOn=Q.wf.bus!==1||Q.wf.mem!==T.MEMLAT||Q.wf.miss!==1,W2=wfOn?model(NX.m,Q.wf):null,n,mx=0;
+  var ipc=function(Mm,n){return Mm.dt[n].X/Mm.P.tpi;},ideal=ipc(M,1),bound=M.xbound/P.tpi;
+  for(n=1;n<=32;n++)mx=Math.max(mx,ipc(M,n),W2?ipc(W2,n):0);mx=_.niceMax(Math.max(mx,NX.m.sys.ipc)*1.15);
+  var a=_.axes(c,0,mx,{bottom:20}),X=function(n){return a.L+a.w*(n-1)/31;};
+  c.font='9px '+MONO;c.textAlign='center';c.textBaseline='alphabetic';c.fillStyle=COL.dim;[1,4,8,12,16,20,24,28,32].forEach(function(n){c.fillText(n,X(n),c.H-5);});
+  c.strokeStyle=COL.mute;c.setLineDash([3,4]);c.beginPath();c.moveTo(X(1),a.y(ideal));c.lineTo(X(Math.min(32,mx/ideal)),a.y(Math.min(mx,ideal*32)));c.stroke();
+  if(bound<mx){c.strokeStyle=COL.red;c.beginPath();c.moveTo(a.L,a.y(bound));c.lineTo(a.L+a.w,a.y(bound));c.stroke();c.fillStyle=COL.red;c.textAlign='left';c.fillText('bus bound '+f(bound,1)+' IPC',a.L+6,a.y(bound)-6);}
+  c.setLineDash([]);
+  if(M.nstar<=32){c.strokeStyle=COL.amber;c.setLineDash([2,3]);c.beginPath();c.moveTo(X(M.nstar),a.T);c.lineTo(X(M.nstar),a.T+a.h);c.stroke();c.setLineDash([]);c.fillStyle=COL.amber;c.textAlign='left';c.fillText('N* = '+f(M.nstar,1),X(M.nstar)+5,a.T+10);}
+  var line=function(Mm,col,dash){c.strokeStyle=col;c.lineWidth=2;if(dash)c.setLineDash([6,4]);c.beginPath();for(var n=1;n<=32;n++){var y=a.y(ipc(Mm,n));if(n>1)c.lineTo(X(n),y);else c.moveTo(X(n),y);}c.stroke();c.setLineDash([]);c.lineWidth=1;};
+  line(M,COL.violet);if(W2)line(W2,COL.amber,true);
+  if(Q.scale&&Q.scaleKey===scaleKey())[4,8,16].forEach(function(n){c.fillStyle=COL.cyan;c.beginPath();c.arc(X(n),a.y(Q.scale[n]),4.5,0,6.3);c.fill();});
+  c.strokeStyle=COL.white;c.lineWidth=1.6;c.beginPath();c.arc(X(M.N),a.y(NX.m.sys.ipc),7,0,6.3);c.stroke();
+  return W2;
+}
+function drawHist(cv,h,S,S2,N,col,geo){
+  var c=ctx2d(cv),mx=0,i,tot=Math.max(1,N);for(i=0;i<50;i++)if(h[i]/tot>mx)mx=h[i]/tot;mx=_.niceMax(Math.max(mx,.02)*1.1);
+  var a=_.axes(c,0,mx,{bottom:18,yfmt:function(v){return(v*100).toFixed(0)+'%';}}),bw=a.w/50,mean=N?S/N:0;
+  for(i=0;i<50;i++){c.fillStyle=col;c.globalAlpha=i===49?.45:.8;c.fillRect(a.L+i*bw+.5,a.y(h[i]/tot),bw-1,a.T+a.h-a.y(h[i]/tot));}c.globalAlpha=1;
+  if(geo&&mean>0){var q=mean/(1+mean);c.strokeStyle=COL.violet;c.lineWidth=1.6;c.setLineDash([5,4]);c.beginPath();for(i=0;i<50;i++){var y=a.y((1-q)*Math.pow(q,i));if(i)c.lineTo(a.L+(i+.5)*bw,y);else c.moveTo(a.L+(i+.5)*bw,y);}c.stroke();c.setLineDash([]);c.lineWidth=1;}
+  if(mean<49){c.strokeStyle=COL.white;c.beginPath();c.moveTo(a.L+(mean+.5)*bw,a.T);c.lineTo(a.L+(mean+.5)*bw,a.T+a.h);c.stroke();}
+  c.fillStyle=COL.dim;c.font='9px '+MONO;c.textAlign='center';c.textBaseline='alphabetic';[0,10,20,30,40].forEach(function(k){c.fillText(k,a.L+(k+.5)*bw,c.H-4);});c.fillText('49+',a.L+49.5*bw,c.H-4);
+}
+function cv2(S,S2,N){if(N<2)return 0;var mu=S/N,v=S2/N-mu*mu;return mu>0?Math.max(0,v)/(mu*mu):0;}
+var WF=[['bus','Bus speed','service time ×',50,200,5,100],['mem','SDRAM access latency','cycles',5,40,1,T.MEMLAT],['miss','Bus transactions per instruction','×',25,300,5,100]];
+NX.page_('queue',{title:'Queueing Model',scope:'system',seluse:'partial',
+  sub:function(){return'The whole machine as a closed queueing network · exact Mean Value Analysis next to the live simulation';},
+  build:function(el){
+    el.innerHTML='<div class="grid c5 mb">'+stat('qm-z','Think time Z','green','cycles')+stat('qm-bn','Bottleneck demand','amber','cycles / tx')+stat('qm-ns','Saturation point N*','','processors')+stat('qm-ipc','MVA predicted IPC','violet','')+stat('qm-err','Model error','','% of measured')+'</div>'+
+      panel('Queueing network · live','<span id="qm-tag">—</span>','<div class="stage"><canvas id="qm-net" style="height:226px;min-width:900px"></canvas></div><div class="kin-legend"><span><i class="dot" style="background:'+COL.green+';color:'+COL.green+'"></i>processor executing (thinking)</span><span><i style="background:'+COL.red+'"></i>waiting for the address bus</span><span><i class="dot" style="background:'+COL.violet+';color:'+COL.violet+'"></i>in snoop / memory service</span><span><i style="background:'+COL.cyan+'"></i>waiting for the data bus · bank active</span><span>filled circle = server busy</span></div><p class="note" style="margin-top:8px">Queue contents, server state and bank activity are read from the simulation each frame. The text under each station sets the model\'s steady-state prediction against the measured value. <a href="#help" id="qm-help">Queueing theory guide →</a></p>','hot mb')+
+      '<div class="grid c-21 mb">'+panel('Four models against the simulation','current operating point','<div class="tblwrap"><table><thead><tr><th>Quantity</th><th class="num">M/M/1 open</th><th class="num">M/D/1 open</th><th class="num">MVA closed · exp.</th><th class="num vi">MVA closed · det.</th><th class="num cy">Simulation</th></tr></thead><tbody id="qm-cmp"></tbody></table></div><p class="note" style="margin-top:10px" id="qm-read">&nbsp;</p>')+
+      panel('Service demands per transaction','<span id="qm-dt">—</span>','<div class="tblwrap"><table><thead><tr><th>Station</th><th class="num">Visits</th><th class="num">S</th><th class="num">Demand D</th><th class="num">U model</th><th class="num">U meas.</th></tr></thead><tbody id="qm-st"></tbody></table></div><p class="note" style="margin-top:10px">D = visits × service time, in bus cycles per transaction. The queueing station with the largest D is the bottleneck: throughput can never exceed 1 / D<sub>max</sub>. The '+T.BANKS+' banks are treated as one server of speed × '+T.BANKS+'.</p>')+'</div>'+
+      '<div class="grid c2 mb">'+panel('Scalability · throughput against processors','<span id="qm-sc">—</span>','<canvas class="chart tall" id="qm-scale"></canvas><div class="kin-legend"><span><i style="background:'+COL.violet+'"></i>MVA prediction</span><span><i style="background:'+COL.amber+'"></i>what-if (dashed)</span><span><i class="dot" style="background:'+COL.cyan+';color:'+COL.cyan+'"></i>simulated at 4, 8, 16</span><span><i style="border:1.5px solid #eafdff;background:none;border-radius:50%"></i>live now</span><span><i style="background:'+COL.mute+'"></i>linear</span><span><i style="background:'+COL.red+'"></i>bus bound</span></div><p class="note" style="margin-top:8px">The curve keeps today\'s per-processor behaviour (think time and demands) and varies only N. Real coherence traffic grows with N, so simulated points can fall below the curve at 16.</p>')+
+      panel('What-if · analytical model only','does not change the simulation',WF.map(function(w){return'<div class="wfrow"><label for="qw-'+w[0]+'">'+w[1]+'</label><input type="range" id="qw-'+w[0]+'" min="'+w[3]+'" max="'+w[4]+'" step="'+w[5]+'" value="'+w[6]+'"><output id="qo-'+w[0]+'">—</output></div>';}).join('')+'<div id="qm-wf" style="margin-top:10px"></div><div class="btnrow" style="margin-top:10px"><button class="btn" id="qm-wfr">Reset what-if</button></div>')+'</div>'+
+      '<div class="grid c2">'+panel('Assumption check · arrivals','<span id="qm-hi">—</span>','<canvas class="chart" id="qm-hI"></canvas><p class="note" style="margin-top:8px">Cycles between consecutive bus requests, system-wide. Bars are measured; the dashed line is the geometric (memoryless) distribution with the same mean, which is what M/M/1 and M/D/1 assume. A squared coefficient of variation near 1 means the Poisson assumption is fair; above 1 means bursts.</p>')+
+      panel('Assumption check · waiting time','<span id="qm-hw">—</span>','<canvas class="chart" id="qm-hW"></canvas><p class="note" style="margin-top:8px">Cycles from request to address-bus grant, per transaction. The white line marks the mean. The last bar collects everything at 49 cycles or more.</p><div class="btnrow" style="margin-top:8px"><button class="btn" id="qm-rs">Reset statistics</button></div>')+'</div>'+
+      '<div class="scope">The network has one customer class and treats every bus transaction alike, including write-backs and prefetches. Z is calibrated from the response-time law at the current operating point (Z = N / X − R), so the model is tested on its response time and waiting predictions and on how it extrapolates to other N. With deep MSHRs or aggressive prefetching one processor holds several transactions at once, which a one-customer-per-processor model cannot express; the page then flags an overlap regime.</div>';
+    WF.forEach(function(w){$('#qw-'+w[0]).addEventListener('input',function(){Q.wf[w[0]]=w[0]==='mem'?+this.value:+this.value/100;NX.dirty=true;});});
+    $('#qm-wfr').addEventListener('click',function(){Q.wf={bus:1,mem:T.MEMLAT,miss:1};WF.forEach(function(w){$('#qw-'+w[0]).value=w[6];});NX.dirty=true;});
+    $('#qm-rs').addEventListener('click',function(){NX.eng.qreset();NX.dirty=true;});
+    $('#qm-help').addEventListener('click',function(e){e.preventDefault();NX.go('help');NX.helpTab('queue');});
+  },
+  enter:function(){if(Q.scaleKey!==scaleKey())setTimeout(runScale,300);},
+  frame:function(ts){drawNet($('#qm-net'),ts);},
+  tick:function(m){
+    var sig=cfgKey();if(sig!==Q.sig){Q.sig=sig;NX.eng.qreset();clearTimeout(Q.timer);Q.timer=setTimeout(function(){if(NX.page==='queue'&&Q.scaleKey!==scaleKey())runScale();},800);}
+    smooth(raw(m));var M=Q.M=model(m),P=M.P,N=M.N,d=M.dt[N],e=M.ex[N],b=m.bus,inf=function(v,dg){return isFinite(v)?f(v,dg):'<span class="rd">∞ unstable</span>';};
+    setText('qm-tag',NX.cfg.proto+' · '+Engine.PROFILES[NX.cfg.workload].name+' · N = '+N);
+    setText('qm-z',f(P.Z,1));setHTML('qm-z-s',P.overlap?'<span class="am">overlap regime · floored</span>':'compute between transactions');setW('qm-z-b',P.Z/(P.Z+d.R)*100);
+    setText('qm-bn',f(M.Dmax,2));setHTML('qm-bn-s','<b class="am">'+P.st[M.bn].name+'</b> · bound '+f(M.xbound*1000,0)+' tx / kcycle');setW('qm-bn-b',P.Xm*M.Dmax*100);
+    setText('qm-ns',f(M.nstar,1));setHTML('qm-ns-s',N>M.nstar?'<span class="rd">N = '+N+' is past saturation</span>':'N = '+N+' is below saturation');setW('qm-ns-b',N/Math.max(N,M.nstar)*100);
+    setText('qm-ipc',f(M.ipc_mva,2));setHTML('qm-ipc-s','simulation '+f(m.sys.ipc,2));setW('qm-ipc-b',M.ipc_mva/(N*T.WIDTH)*100);
+    var err=Math.abs(M.ipc_mva-m.sys.ipc)/Math.max(.01,m.sys.ipc);setText('qm-err',pc(err,1));setHTML('qm-err-s',err<.05?pill('ok','within 5 %'):err<.15?pill('warn','within 15 %'):pill('crit','model breaks down'));setW('qm-err-b',err*300);
+    var row=function(a,v){return'<tr><td>'+a+'</td>'+v.map(function(x,i){return'<td class="num'+(i===4?' wh':'')+'">'+x+'</td>';}).join('')+'</tr>';};
+    var Dq=function(k){return P.st[k].D;};
+    setHTML('qm-cmp',row('Throughput X · tx / kcycle',['<span class="dim">input</span>','<span class="dim">input</span>',f(e.X*1000,0),f(d.X*1000,0),f(P.Xm*1000,0)])+
+      row('Aggregate IPC',['<span class="dim">input</span>','<span class="dim">input</span>',f(e.X/P.tpi,2),f(d.X/P.tpi,2),f(m.sys.ipc,2)])+
+      row('Response time R · cycles / tx',[inf(M.mm1.R,1),inf(M.md1.R,1),f(e.R,1),f(d.R,1),f(P.Rm,1)])+
+      row('Address-bus wait · cycles / tx',[inf(M.mm1.w[0],2),inf(M.md1.w[0],2),f(e.Rk[0]-Dq(0),2),f(d.Rk[0]-Dq(0),2),f(b.addr_wait_tx,2)])+
+      row('Data-bus wait · cycles / tx',[inf(M.mm1.w[3],2),inf(M.md1.w[3],2),f(e.Rk[3]-Dq(3),2),f(d.Rk[3]-Dq(3),2),f(b.data_wait_tx,2)])+
+      row('Bank wait · cycles / tx',[inf(M.mm1.w[1],2),inf(M.md1.w[1],2),f(e.Rk[1]-Dq(1),2),f(d.Rk[1]-Dq(1),2),f(b.bank_wait_tx,2)])+
+      row('Address-bus utilization %',[pc(P.Xm*Dq(0)),pc(P.Xm*Dq(0)),pc(e.U[0]),pc(d.U[0]),pc(b.addr_util)])+
+      row('Data-bus utilization %',[pc(P.Xm*Dq(3)),pc(P.Xm*Dq(3)),pc(e.U[3]),pc(d.U[3]),pc(b.data_util)])+
+      row('Waiting at the address bus · tx',[inf(P.Xm*M.mm1.w[0],2),inf(P.Xm*M.md1.w[0],2),f(e.Q[0]-e.U[0],2),f(d.Q[0]-d.U[0],2),f(b.queue_depth,2)]));
+    var rd=d.R-P.Rm;
+    setHTML('qm-read',(!M.mm1.ok?'An open model needs ρ &lt; 1 at every station. Here the offered load reaches a server\'s capacity, so M/M/1 and M/D/1 predict an infinite queue. The closed model stays finite because a waiting processor issues nothing new. ':'The open models take the measured arrival rate as given and assume arrivals never slow down. ')+
+      'MVA with deterministic service predicts a response time of <b>'+f(d.R,1)+'</b> cycles against <b>'+f(P.Rm,1)+'</b> measured ('+(rd>=0?'+':'')+f(rd,1)+'). '+(Math.abs(rd)/Math.max(1,P.Rm)<.08?'The network is a good description of this operating point.':rd<0?'The simulation waits longer than the model: bursts of misses, the '+T.MAXOUT+'-tag limit and same-bank collisions are not in the network.':'The simulation is faster than the model: service is more regular than even the corrected MVA assumes.'));
+    setText('qm-dt','Σ D = '+f(M.Dsum,1)+' cycles · Z + Σ D = '+f(P.Z+M.Dsum,1));
+    var um=[b.addr_util,m.mem.util,null,b.data_util];
+    setHTML('qm-st','<tr><td>Processors (think)<br><span class="mute">delay</span></td><td class="num">1</td><td class="num">'+f(P.Z,1)+'</td><td class="num">'+f(P.Z,1)+'</td><td class="num dim">—</td><td class="num dim">—</td></tr>'+
+      P.st.map(function(s,i){return'<tr'+(i===M.bn?' class="hl-amber"':'')+'><td>'+s.name+'<br><span class="mute">'+(s.type==='d'?'delay':s.kd)+'</span>'+(i===M.bn?' '+pill('warn','bottleneck'):'')+'</td><td class="num">'+f(s.V,2)+'</td><td class="num">'+(s.type==='d'?'—':f(s.S,1))+'</td><td class="num wh">'+f(s.D,2)+'</td><td class="num">'+(s.type==='d'?'—':pc(d.U[i]))+'</td><td class="num">'+(um[i]===null?'—':pc(um[i]))+'</td></tr>';}).join(''));
+    var W2=drawScale($('#qm-scale'));
+    setText('qm-sc',Q.busy?'measuring 4, 8 and 16 CPUs …':Q.scale&&Q.scaleKey===scaleKey()?'simulated points: '+[4,8,16].map(function(n){return n+' → '+f(Q.scale[n],1);}).join(' · ')+' IPC':'—');
+    setText('qo-bus','× '+f(Q.wf.bus,2));setText('qo-mem',Q.wf.mem+' cyc');setText('qo-miss','× '+f(Q.wf.miss,2));
+    var r2=function(a,sub,v){return'<div class="row"><div class="ln">'+a+'<span>'+sub+'</span></div><div class="rv" style="font-size:12px">'+v+'</div></div>';};
+    if(W2){var i2=W2.dt[N].X/W2.P.tpi,dl=(i2-M.ipc_mva)/M.ipc_mva;setHTML('qm-wf',r2('Predicted IPC at N = '+N,'baseline '+f(M.ipc_mva,2),'<b class="am">'+f(i2,2)+'</b> <span>'+(dl>=0?'+':'')+pc(dl,1)+' %</span>')+r2('Saturation point N*','baseline '+f(M.nstar,1),f(W2.nstar,1))+r2('Bottleneck','baseline '+P.st[M.bn].name,W2.P.st[W2.bn].name)+r2('Response time R','baseline '+f(d.R,1)+' cycles',f(W2.dt[N].R,1)+' <span>cycles</span>'));}
+    else setHTML('qm-wf','<p class="note">Move a slider to ask the model a question the simulator cannot answer without a rebuild: a faster bus, slower memory, or a workload that misses more often. The amber dashed curve shows the answer for every N.</p>');
+    var z=NX.eng.qs,ci=cv2(z.iS,z.iS2,z.iN),cw=cv2(z.wS,z.wS2,z.wN);
+    setText('qm-hi',fi(z.iN)+' requests · mean '+f(z.iN?z.iS/z.iN:0,2)+' cyc · c² = '+f(ci,2));setText('qm-hw',fi(z.wN)+' grants · mean '+f(z.wN?z.wS/z.wN:0,2)+' cyc · c² = '+f(cw,2));
+    drawHist($('#qm-hI'),z.hI,z.iS,z.iS2,z.iN,COL.cyan,true);drawHist($('#qm-hW'),z.hW,z.wS,z.wS2,z.wN,COL.amber,false);
+  }
+});
+})();
+</script>
+<script>
+/* =====================================================================
    NEXUS-3 · ARCH# query language (Phase A · read-only) + hash-chained audit log
    ===================================================================== */
 (function(){
@@ -2038,6 +2229,9 @@ var SCHEMA={
     wait_mean:S('cycles','request to grant'),outstanding:S('tags','mean in flight'),tx_rate:S('/kcycle','address grants'),busrd_rate:S('/kcycle',''),busrdx_rate:S('/kcycle',''),busupgr_rate:S('/kcycle',''),busupd_rate:S('/kcycle',''),buswr_rate:S('/kcycle',''),
     writeback_rate:S('/kcycle',''),c2c_rate:S('/kcycle','cache-to-cache fills'),write_run:S('writes','mean write-run length'),pf_pollution:S('ratio','useless prefetches over all tx')},
   mem:{wait_mean:S('cycles','mean wait for a busy bank'),access_rate:S('/kcycle',''),util:S('ratio','mean bank busy'),bank_util:S('ratio[]','per bank')},
+  qnet:{think_time:S('cycles','Z, computing between bus transactions'),d_addr:S('cyc/tx','address-bus demand'),d_bank:S('cyc/tx','SDRAM bank demand'),d_latency:S('cyc/tx','snoop + memory delay'),d_data:S('cyc/tx','data-bus demand'),bottleneck:S('','station with the largest demand'),
+    n_star:S('cpus','saturation point'),x_bound:S('/kcycle','1 / Dmax'),x_mva:S('/kcycle','MVA throughput'),x_measured:S('/kcycle',''),ipc_mva:S('instr/cyc','MVA predicted IPC'),r_mva:S('cycles','MVA response time, deterministic correction'),r_mva_exp:S('cycles','MVA, exponential service'),
+    r_mm1:S('cycles','open M/M/1 network'),r_md1:S('cycles','open M/D/1 network'),r_measured:S('cycles','simulated response time'),wq_addr_mm1:S('cyc/tx',''),wq_addr_md1:S('cyc/tx',''),wq_addr_mva:S('cyc/tx',''),wq_addr_measured:S('cyc/tx',''),rho_addr:S('ratio',''),rho_data:S('ratio','')},
   cpu:CPUS,
   cache:{lines:S('lines','L2 capacity'),valid:S('lines',''),occupancy:S('ratio',''),m_lines:S('lines','Modified'),e_lines:S('lines','Exclusive'),s_lines:S('lines','Shared / Sc / V'),sm_lines:S('lines','Dragon Sm'),invalid_tags:S('lines','invalidated by a remote write'),
     pending:S('lines','fills in flight'),prefetched:S('lines','prefetched, unused'),shared_lines:S('lines','lines in the shared region'),l1_miss_rate:S('ratio',''),l2_miss_rate:S('ratio','')}
@@ -2074,7 +2268,7 @@ Parser.prototype={
 function scopeKind(sc){return sc==='cpus'?'cpu':sc==='caches'?'cache':sc;}
 function resolve(tg){
   var m=NX.m,n=NX.cfg.ncpu,kind=scopeKind(tg.sc),sch=SCHEMA[kind];
-  if(!sch)throw new Error('unknown scope “'+tg.sc+'”. Scopes: sys, bus, mem, cpu, cpu[k], cache, cache[k], cpus, caches');
+  if(!sch)throw new Error('unknown scope “'+tg.sc+'”. Scopes: sys, bus, mem, qnet, cpu, cpu[k], cache, cache[k], cpus, caches');
   var chk=function(s){if(!sch[s])throw new Error('“'+s+'” is not a signal of '+kind+'. Try: schema '+kind);};
   if(tg.sc==='cpus'||tg.sc==='caches'){
     if(tg.k!==null)throw new Error('“'+tg.sc+'” is the whole array; use '+kind+'['+tg.k+'] for one processor');
@@ -2087,7 +2281,7 @@ function resolve(tg){
   if(tg.where)throw new Error('where … select works on the arrays cpus and caches');
   var obj,label=tg.sc;
   if(kind==='cpu'||kind==='cache'){var k=tg.k===null?NX.sel:tg.k;if(k!==Math.floor(k)||k<0||k>=n)throw new Error(kind+'['+tg.k+'] does not exist: this system has CPUs 0 to '+(n-1));obj=kind==='cpu'?m.cpus[k]:cacheObj(k);label=kind+'['+k+']';}
-  else{if(tg.k!==null)throw new Error('“'+tg.sc+'” takes no index');obj=m[kind];}
+  else{if(tg.k!==null)throw new Error('“'+tg.sc+'” takes no index');obj=kind==='qnet'?NX.qnet(m).arch:m[kind];}
   if(!tg.sig)return{all:true,label:label,obj:obj,sch:sch};
   chk(tg.sig);return{label:label,sig:tg.sig,unit:sch[tg.sig].u,val:obj[tg.sig]};
 }
@@ -2098,7 +2292,7 @@ NX.arch=function(line){
   if(!src)return out;
   var tok=lex(src),p=new Parser(tok),first=tok[0],w=first.t==='id'?first.v.toLowerCase():'';
   if(first.t==='id'&&WRITE.test(first.v))throw new Error('ARCH# Phase A is read-only: “'+first.v+'” is not part of the language. Configuration changes go through the top strip and the Lab, and are recorded in the audit log.');
-  if(w==='help'){['get <scope>.<signal>            one signal: sys, bus, mem, cpu, cpu[k], cache, cache[k]','get <scope>                     every signal of that scope','get cpus.<signal>               array over all processors (also caches.<signal>)','sum|mean|max|min( cpus.<signal> ) explicit aggregation over an array','get cpus where <sig> <op> <value> [and …] select <sig>','schema [scope]                  list signals and units','# text                          comment'].forEach(function(l){P('dim',l);});return out;}
+  if(w==='help'){['get <scope>.<signal>            one signal: sys, bus, mem, qnet, cpu, cpu[k], cache, cache[k]','get <scope>                     every signal of that scope','get cpus.<signal>               array over all processors (also caches.<signal>)','sum|mean|max|min( cpus.<signal> ) explicit aggregation over an array','get cpus where <sig> <op> <value> [and …] select <sig>','schema [scope]                  list signals and units','# text                          comment'].forEach(function(l){P('dim',l);});return out;}
   if(w==='schema'){p.next();var sc=p.peek()?scopeKind(p.id('scope').toLowerCase()):null;Object.keys(SCHEMA).forEach(function(k){if(sc&&sc!==k)return;P('th',k+(k==='cpu'?'  (cpu, cpu[k], cpus)':k==='cache'?'  (cache, cache[k], caches)':''));Object.keys(SCHEMA[k]).forEach(function(s){P('',('  '+pad(s,20)+pad(SCHEMA[k][s].u,12)+SCHEMA[k][s].d));});});if(!out.length)throw new Error('unknown scope for schema');return out;}
   var AGG={sum:1,mean:1,max:1,min:1};
   if(AGG[w]){
@@ -2124,7 +2318,7 @@ NX.arch=function(line){
 };
 NX.archSchema=SCHEMA;
 
-var EX=[['Aggregate IPC','get sys.ipc'],['CPI across CPUs','get cpus.cpi'],['Mean CPI','mean(cpus.cpi)'],['Worst bus stall','max(cpus.cpi_bus_stall)'],['Coherence-bound CPUs','get cpus where cpi_coherence > 0.05 select cpi'],['False sharing','get cpus.false_share_mpki'],['Bus scope','get bus'],['Selected cache','get cache'],['Line states','get caches.m_lines']];
+var EX=[['Aggregate IPC','get sys.ipc'],['CPI across CPUs','get cpus.cpi'],['Mean CPI','mean(cpus.cpi)'],['Worst bus stall','max(cpus.cpi_bus_stall)'],['Coherence-bound CPUs','get cpus where cpi_coherence > 0.05 select cpi'],['False sharing','get cpus.false_share_mpki'],['Bus scope','get bus'],['Selected cache','get cache'],['Line states','get caches.m_lines'],['Queueing model','get qnet']];
 function runScript(src){
   var o=$('#ax-out'),html='',errs=0,n=0;
   src.split('\n').forEach(function(line){
@@ -2347,6 +2541,126 @@ NX.page_('backplane',{title:'3D SMP Hardware & Live Bus Flow',scope:'system',sel
 </script>
 <script>
 /* =====================================================================
+   NEXUS-3 · Help tab: queueing theory and the Queueing Model view
+   ===================================================================== */
+(function(){
+'use strict';
+var NX=window.NEXUS3,_=NX._,f=_.f,pc=_.pc,COL=NX.COL,T=NX.T;
+function R(x,y,w,h,t,sub,col){return'<rect class="box" x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="4"'+(col?' style="stroke:'+col+'"':'')+'/><text class="t" x="'+(x+w/2)+'" y="'+(y+(sub?h/2-2:h/2+4))+'" text-anchor="middle">'+t+'</text>'+(sub?'<text x="'+(x+w/2)+'" y="'+(y+h/2+11)+'" text-anchor="middle">'+sub+'</text>':'');}
+function L(x1,y1,x2,y2,c,d){return'<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" stroke="'+(c||COL.hot)+'" stroke-width="1.4"'+(d?' stroke-dasharray="4 4"':'')+'/>';}
+function TX(x,y,s,c,a){return'<text x="'+x+'" y="'+y+'"'+(a?' text-anchor="'+a+'"':'')+(c?' style="fill:'+c+'"':'')+'>'+s+'</text>';}
+function eq(s,note){return'<div class="eq">'+s+(note?'<i>'+note+'</i>':'')+'</div>';}
+
+function diaOne(){
+  var o='',i;
+  o+=TX(30,62,'arrivals',COL.cyan)+TX(30,76,'rate λ',COL.dim)+L(92,66,150,66,COL.cyan);
+  for(i=0;i<7;i++)o+='<rect x="'+(154+i*30)+'" y="50" width="26" height="32" rx="3" fill="'+(i>2?'rgba(255,59,70,.25)':'#0c1416')+'" stroke="'+(i>2?COL.red:COL.hot)+'"/>';
+  o+=L(366,66,398,66,COL.cyan)+'<circle cx="430" cy="66" r="30" fill="rgba(34,211,238,.18)" stroke="'+COL.cyan+'" stroke-width="1.6"/><text class="t" x="430" y="63" text-anchor="middle">SERVER</text><text x="430" y="77" text-anchor="middle">time S</text>';
+  o+=L(460,66,520,66,COL.cyan)+TX(528,62,'departures',COL.cyan)+TX(528,76,'rate X',COL.dim);
+  o+=L(154,100,362,100,COL.red)+TX(258,116,'waiting time W (in the queue)',COL.red,'middle')+L(400,100,460,100,COL.cyan)+TX(430,116,'service S',COL.cyan,'middle');
+  o+=L(154,134,460,134,COL.amber)+TX(307,150,'response time R = W + S   ·   customers present L = X · R',COL.amber,'middle');
+  o+=TX(640,50,'utilization  ρ = λ · S',COL.white)+TX(640,68,'the fraction of time the server is busy',COL.dim)+TX(640,92,'stable only while ρ &lt; 1',COL.white)+TX(640,110,'at ρ = 1 the queue grows without limit',COL.dim);
+  return'<svg class="dia" viewBox="0 0 960 166" role="img" aria-label="Anatomy of a single queue">'+o+'</svg>';
+}
+function diaCurve(){
+  var x0=60,y0=20,w=520,h=200,o='',i,p1='',p2='',X=function(r){return x0+w*r;},Y=function(v){return y0+h-h*Math.min(v,10)/10;};
+  for(i=0;i<=5;i++){o+=L(x0,Y(i*2),x0+w,Y(i*2),COL.line)+TX(x0-8,Y(i*2)+4,i*2,COL.dim,'end');}
+  for(i=0;i<=10;i+=2)o+=TX(X(i/10),y0+h+16,(i*10)+' %',COL.dim,'middle');
+  for(i=0;i<=95;i++){var r=i/100,a=r/(1-r),b=r/(2*(1-r));if(a<=10.5)p1+=(p1?'L':'M')+X(r).toFixed(1)+' '+Y(a).toFixed(1);p2+=(p2?'L':'M')+X(r).toFixed(1)+' '+Y(b).toFixed(1);}
+  o+='<path d="'+p1+'" fill="none" stroke="'+COL.amber+'" stroke-width="2"/><path d="'+p2+'" fill="none" stroke="'+COL.violet+'" stroke-width="2"/>';
+  o+='<rect x="'+X(.9)+'" y="'+y0+'" width="'+(w*.1)+'" height="'+h+'" fill="'+COL.red+'" fill-opacity=".08"/>';
+  o+=TX(x0+w/2,y0+h+34,'utilization ρ',COL.dim,'middle')+'<text transform="translate(18 '+(y0+h/2)+') rotate(-90)" text-anchor="middle">waiting time W, in service times</text>';
+  o+=TX(620,50,'M/M/1',COL.amber)+TX(680,50,'W = S · ρ / (1 − ρ)',COL.white)+TX(620,68,'random service times',COL.dim);
+  o+=TX(620,100,'M/D/1',COL.violet)+TX(680,100,'W = S · ρ / 2(1 − ρ)',COL.white)+TX(620,118,'constant service: half the wait',COL.dim);
+  o+=TX(620,150,'At ρ = 50 %: 1 S (M/M/1), 0.5 S (M/D/1).',COL.dim)+TX(620,168,'At ρ = 90 % it is 9 S or 4.5 S.',COL.dim)+TX(620,186,'The last 10 % costs more than the first 80 %.',COL.white);
+  return'<svg class="dia" viewBox="0 0 960 262" role="img" aria-label="Waiting time against utilization for M/M/1 and M/D/1">'+o+'</svg>';
+}
+function diaOC(){
+  var o='',i;
+  o+=TX(20,24,'OPEN SYSTEM',COL.amber)+TX(20,40,'arrivals come at a fixed rate λ, whatever happens inside',COL.dim);
+  o+=TX(20,96,'∞ source',COL.dim)+L(86,92,130,92,COL.amber);for(i=0;i<5;i++)o+='<rect x="'+(134+i*24)+'" y="78" width="20" height="28" rx="3" fill="rgba(255,59,70,.2)" stroke="'+COL.red+'"/>';
+  o+=L(256,92,280,92,COL.amber)+'<circle cx="304" cy="92" r="22" fill="rgba(255,176,0,.15)" stroke="'+COL.amber+'" stroke-width="1.5"/>'+L(326,92,376,92,COL.amber)+TX(384,96,'sink',COL.dim);
+  o+=TX(20,140,'λ is an input. If λ · S ≥ 1 the queue is infinite.',COL.white)+TX(20,158,'Good for: a web server, a router port.',COL.dim);
+  o+=L(470,14,470,176,COL.line,true);
+  o+=TX(500,24,'CLOSED SYSTEM',COL.cyan)+TX(500,40,'N customers circulate; one that waits sends nothing new',COL.dim);
+  o+=R(500,66,170,56,'N PROCESSORS','think for Z cycles',COL.green)+L(670,82,720,82,COL.cyan);
+  for(i=0;i<4;i++)o+='<rect x="'+(724+i*24)+'" y="68" width="20" height="28" rx="3" fill="rgba(255,59,70,.2)" stroke="'+COL.red+'"/>';
+  o+=L(822,82,846,82,COL.cyan)+'<circle cx="870" cy="82" r="22" fill="rgba(34,211,238,.15)" stroke="'+COL.cyan+'" stroke-width="1.5"/><text class="t" x="870" y="86" text-anchor="middle">BUS</text>';
+  o+=L(870,104,870,134,COL.cyan)+L(870,134,585,134,COL.cyan)+L(585,134,585,122,COL.cyan);
+  o+=TX(500,158,'Throughput X is an output. The queue can never exceed N.',COL.white)+TX(500,176,'Good for: processors on a shared bus (the machine-repairman model).',COL.dim);
+  return'<svg class="dia" viewBox="0 0 980 190" role="img" aria-label="Open and closed queueing systems">'+o+'</svg>';
+}
+function diaBound(){
+  var x0=60,y0=20,w=480,h=190,o='',Z=18,Dd=20,S=[2,2.7],Nmax=32,Q=[0,0],p='',n,k,xmaxv=1/2.7,X=function(n){return x0+w*n/Nmax;},Y=function(v){return y0+h-h*v/(xmaxv*1.15);};
+  for(n=1;n<=Nmax;n++){var Rk=[],Rs=Dd;for(k=0;k<2;k++){Rk[k]=S[k]*(1+Q[k]);Rs+=Rk[k];}var Xn=n/(Z+Rs);for(k=0;k<2;k++)Q[k]=Xn*Rk[k];p+=(p?'L':'M')+X(n).toFixed(1)+' '+Y(Xn).toFixed(1);}
+  var ns=(Z+Dd+4.7)/2.7;
+  o+=L(x0,y0+h,x0+w,y0+h,COL.hot)+L(x0,y0,x0,y0+h,COL.hot);
+  o+=L(x0,Y(0),X(ns*1.15),Y(ns*1.15/(Z+Dd+4.7)),COL.mute,true)+L(x0,Y(xmaxv),x0+w,Y(xmaxv),COL.red,true)+L(X(ns),y0,X(ns),y0+h,COL.amber,true);
+  o+='<path d="'+p+'" fill="none" stroke="'+COL.violet+'" stroke-width="2.2"/>';
+  o+=TX(X(ns)+6,y0+h-8,'N*',COL.amber)+TX(x0+w-4,Y(xmaxv)-6,'X ≤ 1 / D_max',COL.red,'end')+TX(X(6),Y(6/(Z+Dd+4.7))-26,'X ≤ N / (Z + ΣD)',COL.dim);
+  o+=TX(x0+w/2,y0+h+18,'processors N',COL.dim,'middle')+'<text transform="translate(22 '+(y0+h/2)+') rotate(-90)" text-anchor="middle">throughput X</text>';
+  o+=TX(580,44,'Light load',COL.white)+TX(580,62,'No one waits. Every processor completes one cycle of',COL.dim)+TX(580,78,'Z + ΣD, so throughput grows in a straight line.',COL.dim);
+  o+=TX(580,110,'Heavy load',COL.white)+TX(580,128,'The busiest station works without pause and can pass',COL.dim)+TX(580,144,'only one customer every D_max cycles.',COL.dim);
+  o+=TX(580,176,'N* = (Z + ΣD) / D_max',COL.amber)+TX(580,194,'where the two lines cross: beyond it, an added',COL.dim)+TX(580,210,'processor mostly adds waiting.',COL.dim);
+  return'<svg class="dia" viewBox="0 0 980 236" role="img" aria-label="Throughput bounds and the saturation point">'+o+'</svg>';
+}
+NX.helpQueue=function(){
+  var M=NX.qnet(NX.m),P=M.P,N=M.N,d=M.dt[N],m=NX.m,st=P.st,cfg=NX.LBL.ncpu[NX.cfg.ncpu]+', '+NX.LBL.proto[NX.cfg.proto]+', '+NX.Engine.PROFILES[NX.cfg.workload].name;
+  var it1=[],Rs=0;st.forEach(function(s){it1.push(s.D);Rs+=s.D;});
+  return'<div class="hsec"><span class="hx">Queueing theory</span><span class="hd">the mathematics behind the Queueing Model view</span></div>'+
+  '<div class="prose"><h3>1 · Why queueing theory belongs in this console</h3><p>A bus-based multiprocessor is a waiting-line problem. Many processors want one address bus, one data bus and a handful of memory banks, and each can serve one request at a time. Queueing theory answers, with a few lines of arithmetic, questions that otherwise need a full simulation: how long will a miss wait, how busy will the bus be, how many processors can this machine carry before adding one more only adds waiting.</p>'+
+  '<p>The console already contains a cycle-by-cycle simulation. The <b>Queueing Model</b> view (Interconnect &amp; Analysis menu) puts an analytical model of the same machine next to it. Where the two agree, the simple model is enough to reason with. Where they part, the difference tells you which real mechanism the model has left out.</p>'+
+  '<h3>2 · One queue, and the words used for it</h3></div>'+diaOne()+'<p class="diacap">Every station in the network is one of these. In NEXUS-3 the customers are bus transactions and time is counted in bus cycles.</p>'+
+  '<div class="prose"><dl class="gloss"><dt>λ (lambda)</dt><dd>Arrival rate: customers per unit time coming in.</dd><dt>S</dt><dd>Service time: how long the server works on one customer. The address bus has S = '+T.ADDR+' cycles.</dd><dt>X</dt><dd>Throughput: customers per unit time going out. In a stable system X = λ.</dd><dt>ρ or U</dt><dd>Utilization: the fraction of time the server is busy.</dd><dt>W (or W<sub>q</sub>)</dt><dd>Waiting time in the queue, before service starts.</dd><dt>R</dt><dd>Response time: waiting plus service.</dd><dt>L, Q</dt><dd>Mean number of customers present at the station (waiting and in service).</dd><dt>V</dt><dd>Visit count: how many times one transaction uses a station. A BusUpgr never visits the data bus, so the data bus has V below 1.</dd><dt>D</dt><dd>Service demand: D = V · S, the total service one transaction needs from a station.</dd><dt>Z</dt><dd>Think time: how long a customer stays away between requests. Here it is the computing a processor does between two bus transactions.</dd></dl>'+
+  '<h3>3 · Kendall notation</h3><p>Queues are named by three or more symbols separated by slashes: <b>arrivals / service / servers</b>, optionally followed by the room in the system and the size of the population.</p><dl class="gloss"><dt>M</dt><dd>Markov, or memoryless: exponential times. For arrivals this is a Poisson stream, where the next arrival is equally likely at any moment.</dd><dt>D</dt><dd>Deterministic: every time is the same constant.</dd><dt>G</dt><dd>General: any distribution, described by its mean and variance.</dd><dt>M/M/1</dt><dd>Poisson arrivals, exponential service, one server. The textbook starting point.</dd><dt>M/D/1</dt><dd>Poisson arrivals, constant service, one server. Closer to a clocked bus.</dd><dt>M/M/c</dt><dd>The same with c identical servers, like '+T.BANKS+' memory banks.</dd><dt>M/G/∞</dt><dd>Infinitely many servers: nobody ever waits. This is a pure <b>delay</b>, used for think time and for fixed latencies.</dd><dt>M/M/1//N</dt><dd>One server and a finite population of N customers: the machine-repairman model.</dd></dl><p class="dim">The page writes stations as “· / D / 1”: the dot says that arrivals are whatever the rest of the network produces, not an assumed Poisson stream.</p>'+
+  '<h3>4 · Four laws that need no assumptions</h3><p>These hold for any system in steady state, whatever the distributions. They are bookkeeping, and the console\'s own counters obey them exactly.</p>'+
+  eq('U = X · S','utilization law')+'<p>A server that completes X customers per cycle, each taking S cycles, is busy the fraction X · S. Live check: the address bus passes '+f(m.bus.grant_rate,0)+' grants per 1000 cycles at '+T.ADDR+' cycles each, which gives '+pc(m.bus.grant_rate/1000*T.ADDR)+' %; the measured address-bus utilization is '+pc(m.bus.addr_util)+' %.</p>'+
+  eq('L = X · R','Little\'s law')+'<p>The mean number of customers in any region equals throughput times the mean time each spends there. It applies to a queue, a station, or the whole machine.</p>'+
+  eq('D = V · S','forced-flow law')+'<p>Demand is visits times service time. Working with D lets every station be compared on the same scale, per transaction.</p>'+
+  eq('R = N / X − Z','response-time law for a closed system')+'<p>N customers each spend Z thinking and R in the system per cycle, so N = X · (Z + R). The page uses this to calibrate Z from the measured throughput and response time.</p>'+
+  '<h3>5 · The single queue: M/M/1 and M/D/1</h3></div>'+diaCurve()+'<p class="diacap">Waiting time rises slowly, then without limit. The red band is where the health badge reports SATURATED.</p>'+
+  '<div class="prose"><p>With Poisson arrivals an arriving customer sees the server busy with probability ρ. For exponential service this leads to</p>'+eq('W = S · ρ / (1 − ρ) &nbsp;&nbsp;·&nbsp;&nbsp; R = S / (1 − ρ)','M/M/1')+
+  '<p>A bus does not have random service times: an address phase always takes '+T.ADDR+' cycles. The <b>Pollaczek–Khinchine</b> formula covers any service distribution through its squared coefficient of variation c² (variance divided by mean squared):</p>'+eq('W = S · ρ · (1 + c²) / 2(1 − ρ)','M/G/1, Pollaczek–Khinchine')+
+  '<p>Exponential service has c² = 1 and gives back M/M/1. Constant service has c² = 0 and gives M/D/1, exactly half the wait. Regularity is worth a factor of two. The same idea applies to arrivals: bursty arrivals (c² above 1) wait longer than Poisson arrivals, which is why the page plots the measured inter-arrival histogram and its c².</p>'+
+  '<h3>6 · Open and closed systems</h3></div>'+diaOC()+'<p class="diacap">The Digital Twin uses the open M/D/1 formula. The Queueing Model view uses the closed network.</p>'+
+  '<div class="prose"><p>The formulas above describe an <b>open</b> system: arrivals keep coming at rate λ no matter how long the queue is. A multiprocessor does not behave that way. A processor whose miss is waiting for the bus is stalled, or soon will be, and stops producing new misses. The load regulates itself. This negative feedback is what a <b>closed</b> model captures, and it is why open formulas overestimate waiting near saturation and fail completely at ρ = 1, while the real machine simply runs slower.</p>'+
+  '<p>The classic closed model is the <b>machine repairman</b>: N machines run for a while (think time Z), break down, and queue for a single repairman (service S). Replace machines with processors and the repairman with the bus, and it is the model Culler, Singh and Gupta use for bus contention.</p>'+
+  '<h3>7 · The NEXUS-3 network</h3><p>One repairman is too coarse for a split-transaction bus, so the page uses a small network of stations. A transaction leaves a processor, visits them, and returns:</p>'+
+  '<div class="tblwrap"><table><thead><tr><th>Station</th><th>Type</th><th>What it stands for</th><th>Demand, from live counters</th><th class="num">Now</th></tr></thead><tbody>'+
+  '<tr><td>Processors</td><td>delay</td><td>Computing between two bus transactions</td><td>Z = N / X − R</td><td class="num">'+f(P.Z,1)+'</td></tr>'+
+  '<tr><td>Address bus</td><td>queue · /D/1</td><td>Arbitration and the address phase</td><td>grants per transaction × '+T.ADDR+'</td><td class="num">'+f(st[0].D,2)+'</td></tr>'+
+  '<tr><td>SDRAM banks</td><td>queue · /D/'+T.BANKS+'</td><td>A bank is busy '+T.TRC+' cycles per access</td><td>memory accesses per transaction × '+T.TRC+' / '+T.BANKS+'</td><td class="num">'+f(st[1].D,2)+'</td></tr>'+
+  '<tr><td>Snoop + memory latency</td><td>delay</td><td>Fixed time for the snoop result and the SDRAM or cache-to-cache access</td><td>mix of fills from memory, fills from a cache, and upgrades</td><td class="num">'+f(st[2].D,2)+'</td></tr>'+
+  '<tr><td>Data bus</td><td>queue · /D/1</td><td>The data phase, one line or one word</td><td>line transfers × (cycles per line + 1) + word transfers × 2</td><td class="num">'+f(st[3].D,2)+'</td></tr></tbody></table></div>'+
+  '<p class="dim" style="margin-top:8px">Values in bus cycles per transaction for '+cfg+', taken when this tab was opened.</p>'+
+  '<p>Two modelling choices are worth knowing. The '+T.BANKS+' banks are folded into one server '+T.BANKS+' times as fast (a standard multi-server approximation); it is accurate when the banks are lightly loaded, as they usually are here. And all transactions form a single class: a write-back or a prefetch is counted like a demand miss, although no processor waits for it.</p>'+
+  '<h3>8 · Mean Value Analysis</h3><p>A closed network of this kind has an exact solution that needs no simulation and no large equations. <b>Mean Value Analysis</b> (Reiser and Lavenberg, 1980) builds it up one customer at a time, using the arrival theorem: <i>a customer arriving at a station sees the network as it would be in steady state with one customer fewer</i>.</p>'+
+  '<div class="sx-code"><span class="c"># stations k with demand D[k]; think time Z</span>\nQ[k] = 0  for every station\n<span class="k">for</span> n = 1 … N:\n    <span class="k">for</span> every station k:\n        R[k] = D[k]                      <span class="c"># delay station</span>\n        R[k] = D[k] · (1 + Q[k])         <span class="c"># queueing station: own service + those already there</span>\n    X    = n / (Z + Σ R[k])              <span class="c"># response-time law</span>\n    Q[k] = X · R[k]                      <span class="c"># Little\'s law, per station</span></div>'+
+  '<p>After the last pass, X is the throughput at N processors, R[k] − D[k] is the waiting per transaction at each station, and X · D[k] is its utilization. Because the loop passes through every population from 1 to N, it yields the whole scalability curve for free.</p>'+
+  '<p>Plain MVA assumes exponential service at the queueing stations, which is pessimistic for a clocked bus. The page therefore shows a second column, <b>MVA closed · det.</b>, with a residual-service correction for constant service times: an arriving customer waits a full service for each customer queued ahead, but on average only half a service for the one already being served.</p>'+eq('R[k] = D[k] · (1 + Q[k] − U[k]) + U[k] · D[k] / 2','deterministic FCFS correction')+
+  '<h3>9 · Bounds and the saturation point</h3></div>'+diaBound()+'<p class="diacap">The MVA curve always lies under both straight lines and bends from one to the other around N*.</p>'+
+  '<div class="prose"><p>Two limits bracket any closed system and can be computed by hand:</p>'+eq('X(N) ≤ min(  N / (Z + ΣD) ,  1 / D<sub>max</sub>  )','asymptotic bounds')+eq('N* = (Z + ΣD) / D<sub>max</sub>','saturation point')+
+  '<p>The station with the largest demand is the <b>bottleneck</b>. Speeding up any other station raises throughput very little once N is beyond N*. Lowering D<sub>max</sub> moves the ceiling itself. This is the queueing-theory statement of what the Root-Cause Graph shows causally.</p>'+
+  '<h3>10 · Worked example with the console\'s own numbers</h3><p>Configuration when this tab was opened: <b>'+cfg+'</b>.</p><ul>'+
+  '<li><b>Measure.</b> Throughput X = '+f(P.Xm*1000,0)+' transactions per 1000 cycles; mean response time R = '+f(P.Rm,1)+' cycles.</li>'+
+  '<li><b>Calibrate.</b> Z = N / X − R = '+N+' / '+f(P.Xm,4)+' − '+f(P.Rm,1)+' = <b>'+f(P.Zraw,1)+'</b> cycles'+(P.overlap?' (below the floor, so the page uses '+f(P.Z,1)+' and flags the overlap regime)':'')+'.</li>'+
+  '<li><b>Demands.</b> Address bus '+f(st[0].D,2)+', banks '+f(st[1].D,2)+', latency '+f(st[2].D,2)+', data bus '+f(st[3].D,2)+'. ΣD = '+f(M.Dsum,2)+'.</li>'+
+  '<li><b>Bottleneck.</b> '+st[M.bn].name+', D<sub>max</sub> = '+f(M.Dmax,2)+'. Ceiling 1 / D<sub>max</sub> = '+f(M.xbound*1000,0)+' transactions per 1000 cycles.</li>'+
+  '<li><b>Saturation point.</b> N* = ('+f(P.Z,1)+' + '+f(M.Dsum,2)+') / '+f(M.Dmax,2)+' = <b>'+f(M.nstar,1)+'</b> processors. The machine has '+N+'.</li>'+
+  '<li><b>MVA, first pass (n = 1).</b> Nothing is queued, so R = ΣD = '+f(Rs,2)+' and X = 1 / ('+f(P.Z,1)+' + '+f(Rs,2)+') = '+f(M.dt[1].X*1000,1)+' per 1000 cycles.</li>'+
+  '<li><b>MVA, last pass (n = '+N+').</b> R = '+f(d.R,1)+' cycles, X = '+f(d.X*1000,0)+' per 1000 cycles, address bus '+pc(d.U[0])+' % busy, data bus '+pc(d.U[3])+' % busy.</li>'+
+  '<li><b>Convert.</b> One transaction every '+f(1/P.tpi,1)+' instructions gives a predicted aggregate IPC of <b>'+f(M.ipc_mva,2)+'</b>. The simulation measures <b>'+f(m.sys.ipc,2)+'</b>.</li>'+
+  '<li><b>Open-model check.</b> Address bus ρ = X · D = '+pc(P.Xm*st[0].D)+' %. M/M/1 wait = '+(isFinite(M.mm1.w[0])?f(M.mm1.w[0],2):'∞')+', M/D/1 wait = '+(isFinite(M.md1.w[0])?f(M.md1.w[0],2):'∞')+', MVA wait = '+f(d.Rk[0]-st[0].D,2)+', measured = '+f(m.bus.addr_wait_tx,2)+' cycles per transaction.</li></ul>'+
+  '<h3>11 · Why the simulation departs from the theory</h3><ul><li><b>Bursts.</b> Misses arrive in groups: a stencil row misses on several arrays at once, and one invalidation makes several processors miss together. Inter-arrival c² above 1 means longer waits than any Poisson-based formula predicts.</li><li><b>The tag limit.</b> At most '+T.MAXOUT+' transactions may be outstanding. When all tags are in use the address bus is idle but nobody can be granted; the network has no such blocking.</li><li><b>Overlap.</b> With several MSHRs a processor keeps computing and issues more misses while earlier ones are in flight. A one-customer-per-processor model cannot represent that; Z shrinks toward zero and the page flags the overlap regime.</li><li><b>Non-blocking traffic.</b> Write-backs and prefetches use the bus but stall no one.</li><li><b>Bank collisions.</b> Strided sweeps hit the same bank repeatedly, which a pooled server averages away.</li><li><b>Load-dependent behaviour.</b> The curve holds per-processor behaviour constant. In the real machine more processors mean more sharing, more invalidations and more transactions per instruction.</li><li><b>Synchronization.</b> Lock and barrier waiting is folded into think time, so the model sees it as computing.</li></ul>'+
+  '<h3>12 · Using the Queueing Model view</h3><dl class="gloss"><dt>Top tiles</dt><dd>Think time, the bottleneck demand, the saturation point N*, the IPC that MVA predicts, and its error against the simulation.</dd><dt>Queueing network</dt><dd>The four stations with live contents: one dot per processor (green while executing), red cells for transactions waiting for the address bus, violet dots for those in snoop or memory service, cyan cells for those waiting for the data bus. Under each station, the model\'s utilization and wait beside the measured ones.</dd><dt>Four models table</dt><dd>M/M/1 and M/D/1 (open, fed with the measured arrival rate), MVA with exponential service, MVA with the deterministic correction, and the simulation. Open models print “∞ unstable” when a station reaches ρ = 1.</dd><dt>Service demands</dt><dd>Visits, service time and demand for every station, with the bottleneck highlighted.</dd><dt>Scalability</dt><dd>MVA throughput for 1 to 32 processors, the linear and bus-bound asymptotes, N*, three points simulated in the background at 4, 8 and 16 processors, and the live operating point.</dd><dt>What-if</dt><dd>Three sliders that change only the analytical model: bus speed, SDRAM latency, and transactions per instruction. The dashed curve and the read-out show the consequence for every N.</dd><dt>Assumption checks</dt><dd>Histograms of request inter-arrival times and of grant waiting times since the last configuration change, with mean and c².</dd></dl>'+
+  '<h3>Things to try</h3><ul><li><b>Long Write-Runs under Dragon at 16 CPUs.</b> The open models go to infinity while MVA stays close to the simulation. This is the clearest case for a closed model.</li><li><b>Ocean at 4, 8, 16 CPUs.</b> Watch N* against N and the live circle slide along the curve toward the bus bound.</li><li><b>Raise SDRAM latency in the what-if.</b> Latency is a delay, not a queue: it lowers the straight part of the curve and moves N* to the right, but leaves the ceiling where it was.</li><li><b>Slow the bus instead.</b> The ceiling drops and N* moves left.</li><li><b>MSHR depth 8 with the aggressive prefetcher.</b> The overlap flag appears and the model error grows: the limits of a one-class network.</li><li><b>Lock Contention.</b> Throughput is limited by the lock, not the bus. The network reports low utilization everywhere, which is itself the diagnosis.</li></ul>'+
+  '<h3>ARCH# access</h3><p>The model is available to queries through the <b>qnet</b> scope, for example:</p><div class="sx-code"><span class="k">get</span> qnet.n_star\n<span class="k">get</span> qnet.r_mva\n<span class="k">get</span> qnet               <span class="c"># every model signal</span></div>'+
+  '<h3>Further reading</h3><ul><li>Culler, Singh, Gupta, <i>Parallel Computer Architecture</i>: bus contention and the processor–bus queueing view.</li><li>Lazowska, Zahorjan, Graham, Sevcik, <i>Quantitative System Performance</i>: operational laws, bounds and MVA.</li><li>Jain, <i>The Art of Computer Systems Performance Analysis</i>: single queues, networks, and how to check assumptions.</li><li>Kleinrock, <i>Queueing Systems, Volume 1</i>: the underlying theory.</li></ul></div>';
+};
+})();
+</script>
+<script>
+/* =====================================================================
    NEXUS-3 · Illustrated Help & Guide, About
    ===================================================================== */
 (function(){
@@ -2418,7 +2732,18 @@ function diaCons(){
   return'<svg class="dia" viewBox="0 0 940 200" role="img" aria-label="Write buffer behaviour under SC, PC and RC">'+o+'</svg>';
 }
 function code(s){return'<div class="sx-code">'+s.replace(/(#[^\n]*)/g,'<span class="c">$1</span>').replace(/\b(get|where|select|and|schema|help)\b/g,'<span class="k">$1</span>').replace(/\b(sum|mean|max|min)\(/g,'<span class="f">$1</span>(')+'</div>';}
-var TABS=[['smp','SMP vs. multicore'],['atlas','Visual protocol atlas'],['latency','Latency tolerance & overhead'],['arch','ARCH# reference & operations']];
+function diaCore(){
+  var o='',st=[['FETCH','PC · I-cache',COL.hot],['DECODE · RENAME','32 → 64 registers',COL.hot],['QUEUES','int · addr · FP',COL.hot],['EXECUTE','ALUs · addr calc · FPU',COL.green],['MEMORY','TLB · L1 D-cache',COL.cyan],['GRADUATE','in order → regs',COL.amber]],i;
+  for(i=0;i<st.length;i++){var x=20+i*160;o+=R(x,30,150,44,st[i][0],st[i][1],st[i][2]);if(i<st.length-1)o+=L(x+150,52,x+160,52,COL.cyan);}
+  o+=TX(20,18,'An instruction moves left to right. Loads and stores take the lower path when the cache cannot answer.',COL.dim);
+  o+=L(735,74,735,88,COL.cyan)+L(635,88,791,88,COL.cyan)+L(635,88,635,100,COL.amber)+L(791,88,791,100,COL.cyan);
+  o+=R(560,100,150,40,'WRITE BUFFER','stores awaiting bus',COL.amber)+R(726,100,130,40,'MSHR TABLE','misses in flight',COL.cyan)+L(635,140,635,160,COL.amber)+L(791,140,791,160,COL.cyan);
+  o+=R(480,160,480,40,'SYSTEM INTERFACE · SysAD','L2 SRAM · snoop controller · system bus',COL.red);
+  o+=L(95,74,95,182,COL.magenta,true)+L(95,182,470,182,COL.magenta,true)+TX(105,174,'branch redirect: ALU 1 reloads the PC',COL.magenta);
+  o+=TX(20,220,'Dot colours on the page: green integer, magenta branch, cyan load, amber store, violet floating point.',COL.dim);
+  return'<svg class="dia" viewBox="0 0 990 232" role="img" aria-label="Stages of the core datapath">'+o+'</svg>';
+}
+var TABS=[['smp','SMP vs. multicore'],['atlas','Visual protocol atlas'],['latency','Latency tolerance & overhead'],['core','Inside the core'],['queue','Queueing theory'],['arch','ARCH# reference & operations']];
 function tabBody(t){
   if(t==='smp')return'<div class="hsec"><span class="hx">SMP vs. multicore (CMP)</span><span class="hd">why the bus is the story</span></div>'+diaSmp()+'<p class="diacap">Left: the machine this console simulates. Right: a modern multicore, shown only to mark the difference.</p>'+
     '<div class="prose"><p>NEXUS-3 models a <b>bus-based symmetric multiprocessor</b> of the late 1990s: 4 to 16 discrete processor modules, each a 64-bit out-of-order RISC core (MIPS R10000 / UltraSPARC class) with a private on-chip L1 and a private off-chip L2, plugged into one backplane. All of them reach one main memory over one shared, split-transaction bus, in the style of SGI Powerpath-2 and Sun Gigaplane. Memory is equally far from every processor, which is what UMA means.</p>'+
@@ -2439,15 +2764,23 @@ function tabBody(t){
     '<div class="prose"><h3>Hardware stride prefetching</h3></div>'+diaPf()+'<p class="diacap">A prefetch is a bet placed on the bus. On a saturated bus a lost bet delays somebody\'s real miss.</p>'+
     '<div class="prose"><h3>Write buffers and memory consistency</h3></div>'+diaCons()+'<p class="diacap">The weaker the model, the more write latency the buffer can hide, and the more there is to flush when a lock or barrier demands order.</p>'+
     '<div class="prose"><h3>Bus overhead in one sentence each</h3><ul><li><b>Bus utilization</b>: share of cycles in which the address or the data lines are driven.</li><li><b>Protocol overhead ratio</b>: of those busy cycles, the share spent on coherence traffic rather than on fetching data a program needed for the first time.</li><li><b>Mean write-run length</b>: how many times one processor writes a shared location before another processor touches it. Long runs favour invalidation, runs near 1 favour update.</li><li><b>Arbitration queue depth</b>: transactions waiting for the address bus. It stays near zero until utilization passes roughly 85 %, then grows without bound.</li></ul></div>';
+  if(t==='queue')return NX.helpQueue();
+  if(t==='core')return'<div class="hsec"><span class="hx">Inside the core</span><span class="hd">guide to the Core Datapath view</span></div>'+diaCore()+'<p class="diacap">The stages drawn on the Core Datapath page (Processor menu), for the CPU selected in the top strip.</p>'+
+    '<div class="grid c2"><div class="prose"><h3>What the page shows</h3><p>The Core Datapath view opens up one processor module and follows each instruction through it. The block diagram is styled after the MIPS R10000: instructions are fetched, renamed, parked in one of three queues, executed out of order, and graduated in program order.</p>'+
+    '<dl class="gloss"><dt>PC · I-cache</dt><dd>Program counter and instruction fetch, '+T.WIDTH+' instructions per cycle.</dd><dt>Decode · rename</dt><dd>Each destination register gets a fresh physical register from the free list, so later instructions do not wait on a name.</dd><dt>Active list</dt><dd>The reorder window, '+T.ROB+' entries. The bar shows how far execution has run ahead of the oldest unresolved load; when it fills, the core stops.</dd><dt>Queues</dt><dd>Integer, address and floating-point queues hold instructions until their operands are ready.</dd><dt>ALU 1 · ALU 2</dt><dd>Integer units. ALU 1 also does shifts and resolves branches; ALU 2 also multiplies. Each shows operand A, operand B, the operation and the result.</dd><dt>Address calc · TLB</dt><dd>Adds base register and offset to form the effective address of a load or store.</dd><dt>FPU</dt><dd>Floating-point add, multiply and divide. FP register values are not shown.</dd><dt>L1 D-cache</dt><dd>Reports the outcome of the access: L1 hit, L2 hit, or a miss that goes to the bus.</dd><dt>Write buffer · MSHR table</dt><dd>Stores waiting for bus ownership, and misses in flight.</dd><dt>System interface</dt><dd>The pins of the module. Lists the transactions this CPU has outstanding and flashes red or amber when an invalidation or an update is snooped from another processor.</dd><dt>Graduate</dt><dd>Results are committed to the register file in program order.</dd></dl>'+
+    '<h3>What is real and what is synthesized</h3><p>The simulation engine models each processor\'s <b>memory-reference stream</b>; it does not execute programs. On this page:</p><ul><li><b>Live engine state</b>: effective addresses, cache outcomes, the pipeline state and its stall cause, active-list occupancy, write buffer, MSHRs, outstanding bus transactions and snoops received.</li><li><b>Synthesized</b>: opcodes, register numbers and register values. They are generated deterministically from the reference stream, and base registers are set so that base + offset equals the real effective address.</li></ul><p class="dim">The Signals now table marks every row as <b>engine</b> or <b>synth</b>. Branch misprediction is not modelled, so branches never cost cycles here.</p></div>'+
+    '<div class="prose"><h3>Reading the panels</h3><ul><li><b>Datapath.</b> The bright route is the instruction shown at the bottom left of the diagram. Dots are instructions in flight, sampled at high clock rates.</li><li><b>Integer register file.</b> The 32 logical registers with the physical register each one currently maps to. Cyan cells were read and the amber cell was written by the instruction shown.</li><li><b>Signals now.</b> One row per signal with its current value and its source.</li><li><b>Instruction log.</b> The last 40 instructions, newest first: cycle, PC, instruction, unit, operands, result, memory outcome and destination.</li></ul>'+
+    '<h3>Freeze, step and replay</h3><dl class="gloss"><dt>Freeze</dt><dd>Holds this page only. The diagram, registers, signals and log stop updating; the machine keeps running and every other view stays live.</dd><dt>Unfreeze</dt><dd>Resumes from the current moment. Only the most recent instructions that ran while frozen are added to the log; older ones are skipped.</dd><dt>Click a log row</dt><dd>Freezes the view and replays that instruction on the diagram, with its registers highlighted. Click it again to release it.</dd><dt>Step 1 bus cycle</dt><dd>Pauses the whole simulation and advances it one cycle (up to '+T.WIDTH+' instructions). Use it to watch a single miss travel to the bus.</dd><dt>Run live</dt><dd>Resumes the simulation clock.</dd><dt>Clear log</dt><dd>Empties the instruction log.</dd></dl>'+
+    '<h3>Things to try</h3><ul><li>Select <b>Lock Contention</b> in the Lab and watch <b>sc</b> (lock acquire) stores go to the write buffer while the pipeline state turns violet.</li><li>Compare <b>MSHR depth 1</b> and <b>4</b> on Ocean: with 1 the core stops at the second miss while the first is still in flight; with 4 it runs on, and the active list can fill behind the oldest load and turn red.</li><li>Switch to <b>PC</b> or <b>RC</b> consistency and watch stores leave through the write buffer while loads keep executing.</li><li>Run <b>False Sharing</b> at 128 B and watch the system interface flash red on every snooped invalidation.</li></ul></div></div>';
   return'<div class="hsec"><span class="hx">ARCH# language reference & console operations</span><span class="hd">Phase A · read-only</span></div><div class="grid c2"><div class="prose">'+
     '<p>ARCH# is a small deterministic query language over the live telemetry, modelled on NX-Script (NEXUS-1) and SAT# (NEXUS-2). In Phase A it can only read. There is no verb that changes the machine, and the parser rejects anything that looks like one.</p>'+
-    '<h3>Reading one signal</h3>'+code('get sys.ipc                 # aggregate instructions per cycle\nget bus.overhead_ratio\nget cpu.cpi                 # the CPU selected in the top strip\nget cpu[5].cpi_coherence    # a specific processor\nget cache.m_lines           # Modified lines in the selected L2\nget bus                     # every signal of a scope')+
+    '<h3>Reading one signal</h3>'+code('get sys.ipc                 # aggregate instructions per cycle\nget bus.overhead_ratio\nget cpu.cpi                 # the CPU selected in the top strip\nget cpu[5].cpi_coherence    # a specific processor\nget cache.m_lines           # Modified lines in the selected L2\nget bus                     # every signal of a scope\nget qnet.n_star             # the queueing model: saturation point')+
     '<h3>Arrays and aggregation</h3>'+code('get cpus.cpi                # one value per processor\nget caches.invalid_tags\nmean(cpus.cpi)\nmax(cpus.cpi_bus_stall)     # also reports which CPU\nsum(caches.m_lines)')+
     '<h3>Filtering</h3>'+code('get cpus where cpi_coherence > 1.2 select cpi\nget cpus where false_share_mpki > 2 and ipc < 1.5 select coh_mpki\nmax(cpus where cpi_sync > 0.5 select cpi)')+
-    '<h3>Grammar</h3>'+code('query  := get target | agg ( target ) | schema [scope] | help\ntarget := scope [ . signal ] [ where cond { and cond } select signal ]\nscope  := sys | bus | mem | cpu | cpu[k] | cache | cache[k] | cpus | caches\ncond   := signal ( > | < | >= | <= | == | != ) value\nagg    := sum | mean | max | min')+
+    '<h3>Grammar</h3>'+code('query  := get target | agg ( target ) | schema [scope] | help\ntarget := scope [ . signal ] [ where cond { and cond } select signal ]\nscope  := sys | bus | mem | qnet | cpu | cpu[k] | cache | cache[k] | cpus | caches\ncond   := signal ( > | < | >= | <= | == | != ) value\nagg    := sum | mean | max | min')+
     '<p class="dim">All rates are taken over the same sliding window as the console (about 2000 bus cycles). A query never advances or pauses the clock, so two queries on consecutive lines can see slightly different instants unless the simulation is paused.</p></div>'+
-    '<div class="prose"><h3>Console operations</h3><ul><li><b>System scale</b> rebuilds the machine with 4, 8 or 16 processors. Caches are flushed and re-warmed.</li><li><b>Protocol hot-swap</b> changes Dragon / MESI / WTI without flushing. Line states are converted in place (Sm becomes S under MESI, everything valid becomes V under WTI), and transactions already queued are re-interpreted when they are granted.</li><li><b>Selected CPU</b> drives the Inspector, the unindexed <b>cpu</b> and <b>cache</b> scopes, and the highlight in every chart. The selector glows when the current view depends on it.</li><li><b>Clock</b>: 1× to watch individual transactions, 10× for normal work, 100× to let a change settle. <b>Step</b> pauses and advances one bus cycle. <b>Reset</b> flushes every cache and restarts the workload.</li><li><b>Health badge</b>: NOMINAL, CONTENDED (bus above 75 % busy, or more than 40 % of CPI lost to coherence and bus waiting), SATURATED (bus above 90 % or a deep arbitration queue).</li></ul>'+
-    '<h3>Where to look first</h3><dl class="gloss"><dt>Throughput is low</dt><dd>System Overview: which CPI colour dominates?</dd><dt>Amber (coherence)</dt><dd>Inspector: false or true sharing? Then block size or protocol.</dd><dt>Red (bus)</dt><dd>Interconnect: which transaction kind fills the analyzer? Root-Cause Graph for the chain.</dd><dt>Cyan (local)</dt><dd>Lab: MSHR depth and prefetcher. Digital Twin shows how much is already hidden.</dd><dt>Violet (sync)</dt><dd>Lock Contention profile and the consistency model.</dd></dl>'+
+    '<div class="prose"><h3>Console operations</h3><ul><li><b>System scale</b> rebuilds the machine with 4, 8 or 16 processors. Caches are flushed and re-warmed.</li><li><b>Protocol hot-swap</b> changes Dragon / MESI / WTI without flushing. Line states are converted in place (Sm becomes S under MESI, everything valid becomes V under WTI), and transactions already queued are re-interpreted when they are granted.</li><li><b>Selected CPU</b> drives the Inspector, the Core Datapath, the unindexed <b>cpu</b> and <b>cache</b> scopes, and the highlight in every chart. The selector glows when the current view depends on it.</li><li><b>Clock</b>: 1× to watch individual transactions, 10× for normal work, 100× to let a change settle. <b>Step</b> pauses and advances one bus cycle. <b>Reset</b> flushes every cache and restarts the workload.</li><li><b>Health badge</b>: NOMINAL, CONTENDED (bus above 75 % busy, or more than 40 % of CPI lost to coherence and bus waiting), SATURATED (bus above 90 % or a deep arbitration queue).</li></ul>'+
+    '<h3>Where to look first</h3><dl class="gloss"><dt>Throughput is low</dt><dd>System Overview: which CPI colour dominates?</dd><dt>Amber (coherence)</dt><dd>Inspector: false or true sharing? Then block size or protocol.</dd><dt>Red (bus)</dt><dd>Interconnect: which transaction kind fills the analyzer? Root-Cause Graph for the chain.</dd><dt>Cyan (local)</dt><dd>Lab: MSHR depth and prefetcher. Digital Twin shows how much is already hidden.</dd><dt>Violet (sync)</dt><dd>Lock Contention profile and the consistency model.</dd><dt>How far will it scale?</dt><dd>Queueing Model: N*, the bus bound and the what-if sliders. See the Queueing theory tab.</dd><dt>One instruction at a time</dt><dd>Core Datapath: freeze or step, then read the log. See the Inside the core tab.</dd></dl>'+
     '<h3>Audit log</h3><p>Every change made through the top strip, the Lab or a drill is appended to a SHA-256 hash chain with the bus cycle and wall-clock time at which it took effect. Selecting a CPU, changing the clock rate and running queries are not configuration changes and are not logged.</p>'+
     '<h3>Determinism</h3><p>The workload generators use a seeded generator, so a given configuration replays the same reference stream after every Reset. Changing a parameter mid-run changes the interleaving from that point on.</p></div></div>';
 }
