@@ -446,7 +446,7 @@ P.build=function(){
       w:{bi:0,rem:0,obj:0,wp:0,rp:0,gp:0,np:0,ph:0,pc:(i*17)%60,lk:0,sp:0,si:0,skew:1+.12*i/n},
       lastCat:1});
   }
-  this.wordVer=new Uint32Array(SHW);this.stamp=1;
+  this.wordVer=new Uint32Array(SHW);this.wordBy=new Int8Array(SHW).fill(-1);this.stamp=1;
   this.runLen=new Uint16Array(SHW>>2);this.runOwner=new Int8Array(SHW>>2).fill(-1);
   this.q=[];for(i=0;i<n;i++)this.q.push([]);
   this.rr=0;this.inflight=[];this.addrFree=0;this.dataFree=0;this.addrKind=0;this.dataKind=0;this.addrCoh=false;this.dataCoh=false;
@@ -493,7 +493,7 @@ P.issueMiss=function(cc,b,w,kind,pf,forStore){
   var K=this.K,o=cc.id*NC,li=this.find(cc,b),coh=false,fsh=false;
   if(li>=0){
     if(cc.fl[li]&PENDING)return null;
-    if(cc.fl[li]&COHINV){coh=true;if(b<this.shBlocks)fsh=this.wordVer[w]<=cc.inv[li];}
+    if(cc.fl[li]&COHINV){coh=true;if(b<this.shBlocks)fsh=!(this.wordVer[w]>cc.inv[li]&&this.wordBy[w]!==cc.id);}   /* true sharing only if another CPU wrote this word since the invalidation */
   }else{
     var s=(b&cc.setMask)<<1,a=s,bb=s+1;
     if(cc.tag[a]<0)li=a;else if(cc.tag[bb]<0)li=bb;
@@ -543,7 +543,7 @@ P.noteWrite=function(c,w){
   var g=w>>2,ro=this.runOwner[g];
   if(ro===c){if(this.runLen[g]<65535)this.runLen[g]++;}
   else{if(ro>=0){var K=this.K,B=this.BO;K[B+BI.rsum]+=this.runLen[g];K[B+BI.rn]++;}this.runOwner[g]=c;this.runLen[g]=1;}
-  this.wordVer[w]=++this.stamp;
+  this.wordVer[w]=++this.stamp;this.wordBy[w]=c;
 };
 P.load=function(cc,w){
   var b=w>>this.wsh,K=this.K,o=cc.id*NC,i1=b&cc.l1Mask;
@@ -741,7 +741,7 @@ P.grant=function(tx){
     else if(cc.st[li]===0||(cc.fl[li]&PENDING)){
       if(tx.kind===UPG&&!(cc.fl[li]&PENDING)&&cc.nMshr<this.cfg.mshr+2){      /* lost the race: upgrade becomes a read-exclusive */
         tx.kind=RDX;tx.mshr=true;tx.forStore=true;tx.rob=cc.icnt;tx.li=li;cc.fl[li]=PENDING;cc.nMshr++;cc.out.push(tx);
-        K[o+CI.l2miss]++;K[o+CI.cohm]++;if(tx.b<this.shBlocks)K[o+CI.ts]++;tx.coh=true;
+        K[o+CI.l2miss]++;K[o+CI.cohm]++;if(tx.b<this.shBlocks){if(!(this.wordVer[tx.w]>cc.inv[li]&&this.wordBy[tx.w]!==cc.id))K[o+CI.fs]++;else K[o+CI.ts]++;}tx.coh=true;   /* classify like any other coherence miss */
       }else tx.cancel=true;
     }
   }
