@@ -774,6 +774,7 @@ P.grant=function(tx){
     break;
   case WR:
     for(i=0;i<n;i++){if(i===tx.cpu)continue;oc=this.cpu[i];lo=this.find(oc,tx.b);if(lo<0||oc.st[lo]===0)continue;targets++;this.invalidate(oc,lo,'BusWr');}
+    li=this.find(cc,tx.b);if(li>=0&&cc.st[li]===1&&!(cc.fl[li]&PENDING))this.setSt(cc,li,1,'PrWr');   /* count the V->V write for the state diagram */
     break;
   }
   var bank=tx.b&(T.BANKS-1);
@@ -1373,7 +1374,7 @@ var FSM={
       [4,1,'BusUpd',['4>1:BusUpd'],'b',-30,.36],[4,3,'PrWr / BusUpd (S̄)',['4>3:PrWr'],'p',-26],[3,4,'BusRd / supply',['3>4:BusRd'],'b',-26],[4,4,'PrWr / BusUpd (S)',['4>4:PrWr'],'p',0],
       [-1,2,'PrRdMiss / BusRd (S̄)',['0>2:PrRd'],'p',0],[-2,1,'PrRdMiss / BusRd (S)',['0>1:PrRd'],'p',0]]},
   WTI:{nodes:{1:[175,150,'V','Valid'],0:[435,150,'I','Invalid']},
-    edges:[[0,1,'PrRd / BusRd',['0>1:PrRd'],'p',-44],[1,0,'BusWr (remote write)',['1>0:BusWr'],'b',-44],[1,1,'PrWr / BusWr',[],'p',0]]}
+    edges:[[0,1,'PrRd / BusRd',['0>1:PrRd'],'p',-44],[1,0,'BusWr (remote write)',['1>0:BusWr'],'b',-44],[1,1,'PrWr / BusWr',['1>1:PrWr'],'p',0]]}
 };
 function fsmSVG(proto,sfx){sfx=sfx||'';
   var F=FSM[proto],R=30,o='<defs><marker id="ah-p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="'+COL.cyan+'"/></marker><marker id="ah-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="'+COL.amber+'"/></marker></defs>';
