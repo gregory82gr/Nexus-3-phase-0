@@ -1365,14 +1365,14 @@ NX.page_('overview',{title:'System Overview',scope:'system',seluse:'partial',
 
 /* ================= PIPELINE & SNOOP INSPECTOR ================= */
 var FSM={
-  MESI:{nodes:{3:[125,72,'M','Modified'],2:[395,72,'E','Exclusive'],1:[125,292,'S','Shared'],0:[395,292,'I','Invalid']},
-    edges:[[0,2,'PrRd / BusRd (S̄)',['0>2:PrRd'],'p',-30],[0,1,'PrRd / BusRd (S)',['0>1:PrRd'],'p',-26],[0,3,'PrWr / BusRdX',['0>3:PrWr'],'p',18,.3],[2,3,'PrWr / —',['2>3:PrWr'],'p',-26],[1,3,'PrWr / BusUpgr',['1>3:PrWr'],'p',-30],
-      [3,1,'BusRd / Flush',['3>1:BusRd'],'b',-30],[2,1,'BusRd',['2>1:BusRd'],'b',18,.26],[3,0,'BusRdX / Flush',['3>0:BusRdX'],'b',18,.3],[2,0,'BusRdX',['2>0:BusRdX'],'b',-30],[1,0,'BusRdX · BusUpgr',['1>0:BusRdX','1>0:BusUpgr'],'b',-26]]},
-  DRAGON:{nodes:{2:[125,82,'E','Exclusive'],1:[395,82,'Sc','Shared-Clean'],4:[395,292,'Sm','Shared-Mod · owner'],3:[125,292,'M','Modified']},
-    edges:[[2,3,'PrWr / —',['2>3:PrWr'],'p',26],[2,1,'BusRd',['2>1:BusRd'],'b',-22],[1,4,'PrWr / BusUpd (S)',['1>4:PrWr'],'p',-30],[1,3,'PrWr / BusUpd (S̄)',['1>3:PrWr'],'p',16,.42],
-      [4,1,'BusUpd',['4>1:BusUpd'],'b',-30],[4,3,'PrWr / BusUpd (S̄)',['4>3:PrWr'],'p',-26],[3,4,'BusRd / supply',['3>4:BusRd'],'b',-26],[4,4,'PrWr / BusUpd (S)',['4>4:PrWr'],'p',0],
+  MESI:{nodes:{3:[170,72,'M','Modified'],2:[450,72,'E','Exclusive'],1:[170,292,'S','Shared'],0:[450,292,'I','Invalid']},
+    edges:[[0,2,'PrRd / BusRd (S̄)',['0>2:PrRd'],'p',-30,.5],[0,1,'PrRd / BusRd (S)',['0>1:PrRd'],'p',-26],[0,3,'PrWr / BusRdX',['0>3:PrWr'],'p',18,.2],[2,3,'PrWr / —',['2>3:PrWr'],'p',-26],[1,3,'PrWr / BusUpgr',['1>3:PrWr'],'p',-30,.64],
+      [3,1,'BusRd / Flush',['3>1:BusRd'],'b',-30,.64],[2,1,'BusRd',['2>1:BusRd'],'b',18,.26],[3,0,'BusRdX / Flush',['3>0:BusRdX'],'b',18,.3],[2,0,'BusRdX',['2>0:BusRdX'],'b',-30,.5],[1,0,'BusRdX · BusUpgr',['1>0:BusRdX','1>0:BusUpgr'],'b',-26]]},
+  DRAGON:{nodes:{2:[170,82,'E','Exclusive'],1:[450,82,'Sc','Shared-Clean'],4:[450,292,'Sm','Shared-Mod · owner'],3:[170,292,'M','Modified']},
+    edges:[[2,3,'PrWr / —',['2>3:PrWr'],'p',26],[2,1,'BusRd',['2>1:BusRd'],'b',-22],[1,4,'PrWr / BusUpd (S)',['1>4:PrWr'],'p',-30,.36],[1,3,'PrWr / BusUpd (S̄)',['1>3:PrWr'],'p',16,.42],
+      [4,1,'BusUpd',['4>1:BusUpd'],'b',-30,.36],[4,3,'PrWr / BusUpd (S̄)',['4>3:PrWr'],'p',-26],[3,4,'BusRd / supply',['3>4:BusRd'],'b',-26],[4,4,'PrWr / BusUpd (S)',['4>4:PrWr'],'p',0],
       [-1,2,'PrRdMiss / BusRd (S̄)',['0>2:PrRd'],'p',0],[-2,1,'PrRdMiss / BusRd (S)',['0>1:PrRd'],'p',0]]},
-  WTI:{nodes:{1:[130,150,'V','Valid'],0:[390,150,'I','Invalid']},
+  WTI:{nodes:{1:[175,150,'V','Valid'],0:[435,150,'I','Invalid']},
     edges:[[0,1,'PrRd / BusRd',['0>1:PrRd'],'p',-44],[1,0,'BusWr (remote write)',['1>0:BusWr'],'b',-44],[1,1,'PrWr / BusWr',[],'p',0]]}
 };
 function fsmSVG(proto,sfx){sfx=sfx||'';
@@ -1393,13 +1393,14 @@ function fsmSVG(proto,sfx){sfx=sfx||'';
   });
   Object.keys(F.nodes).forEach(function(k){var nd=F.nodes[k],sc=['#4a6268',COL.cyan,COL.green,COL.red,COL.amber][k];
     o+='<g class="st"><circle id="fn'+sfx+'-'+k+'" cx="'+nd[0]+'" cy="'+nd[1]+'" r="'+R+'" fill="#0c1416" stroke="'+sc+'" stroke-width="2"/><text x="'+nd[0]+'" y="'+(nd[1]+2)+'">'+nd[2]+'</text><text class="cnt" id="fc'+sfx+'-'+k+'" x="'+nd[0]+'" y="'+(nd[1]+16)+'">'+(sfx?'':'0')+'</text></g>';});
-  return'<svg class="fsm" viewBox="0 0 520 '+(proto==='WTI'?250:392)+'" role="img" aria-label="'+proto+' state-transition diagram">'+o+'</svg>';
+  return'<svg class="fsm" viewBox="0 0 620 '+(proto==='WTI'?250:392)+'" role="img" aria-label="'+proto+' state-transition diagram">'+o+'</svg>';
 }
 var INS={proto:'',prev:{},fire:{},tokens:[],seen:0,ins:0};
 function drawPipe(cv,ts,dt){
   var c=ctx2d(cv),W=c.W,H=c.H,eng=NX.eng,cc=eng.cpu[NX.sel],mc=NX.m.cpus[NX.sel],i;
-  var x0=14,bw=(W-28-4*26)/5,by=24,bh=74,X=function(k){return x0+k*(bw+26);};
-  var names=['FETCH · DECODE','OoO WINDOW','L1 D-CACHE','L2 + SNOOP CTRL','SYSTEM BUS'],subs=[T.WIDTH+'-wide superscalar','ROB '+T.ROB+' entries',T.L1KB+' KB · direct-mapped',(NX.cfg.l2KB>=1024?NX.cfg.l2KB/1024+' MB':NX.cfg.l2KB+' KB')+' · 2-way · inclusive','split-transaction'];
+  var gp=W<760?12:26,x0=14,bw=(W-28-4*gp)/5,cpt=bw<128,by=24,bh=74,X=function(k){return x0+k*(bw+gp);};
+  var names=['FETCH · DECODE','OoO WINDOW','L1 D-CACHE','L2 + SNOOP CTRL','SYSTEM BUS'],subs=cpt?[T.WIDTH+'-wide','ROB '+T.ROB,T.L1KB+' KB',(NX.cfg.l2KB>=1024?NX.cfg.l2KB/1024+' MB':NX.cfg.l2KB+' KB')+' · 2-way','split-tx']:[T.WIDTH+'-wide superscalar','ROB '+T.ROB+' entries',T.L1KB+' KB · direct-mapped',(NX.cfg.l2KB>=1024?NX.cfg.l2KB/1024+' MB':NX.cfg.l2KB+' KB')+' · 2-way · inclusive','split-transaction'];
+  if(cpt)names=['FETCH','OoO WINDOW','L1 D-CACHE','L2 + SNOOP','SYSTEM BUS'];
   c.textBaseline='middle';
   for(i=0;i<5;i++){
     c.fillStyle='#0c1416';c.strokeStyle=i===4?(NX.m.bus.util>.9?COL.red:NX.m.bus.util>.65?COL.amber:COL.hot):COL.hot;c.lineWidth=1;rr(c,X(i),by,bw,bh,5);c.fill();c.stroke();
@@ -1409,19 +1410,19 @@ function drawPipe(cv,ts,dt){
   }
   /* fetch: activity */
   var cat=cc.lastCat,col=CATC[cat];
-  c.fillStyle=col;c.font='600 9px '+MONO;c.fillText(CATN[cat].toUpperCase(),X(0)+8,by+48);
+  c.fillStyle=col;c.font='600 '+(cpt?'8px ':'9px ')+MONO;c.fillText(cpt?CATN[cat].toUpperCase().replace(' STALL','').replace('COHERENCE','COHER.'):CATN[cat].toUpperCase(),X(0)+8,by+48);
   c.fillStyle=COL.dim;c.font='8px '+MONO;c.fillText('IPC '+f(mc.ipc,2),X(0)+8,by+62);
   /* ROB occupancy behind the oldest unresolved load */
   var od=null;for(i=0;i<cc.out.length;i++)if(!cc.out[i].pf&&!cc.out[i].forStore){od=cc.out[i];break;}
   var occ=od?clamp(cc.icnt-od.rob,0,T.ROB):0,cw=(bw-16)/16;
   for(i=0;i<T.ROB;i++){var rx=X(1)+8+(i%16)*cw,ry=by+40+(i>>4)*13;c.fillStyle=i<occ?(occ>=T.ROB?COL.red:COL.cyan):COL.line;c.fillRect(rx,ry,cw-1.5,10);}
-  c.fillStyle=COL.dim;c.font='8px '+MONO;c.fillText(od?'window '+occ+'/'+T.ROB+(occ>=T.ROB?' · BLOCKED':''):'no load outstanding',X(1)+8,by+bh-6);
+  c.fillStyle=COL.dim;c.font='8px '+MONO;c.fillText(od?(cpt?'':'window ')+occ+'/'+T.ROB+(occ>=T.ROB?(cpt?' BLOCKED':' · BLOCKED'):''):(cpt?'idle':'no load outstanding'),X(1)+8,by+bh-6);
   /* L1 / L2 */
-  c.fillStyle=COL.dim;c.fillText('miss '+pc(mc.l1_miss_rate,1)+' % of loads',X(2)+8,by+48);
+  c.fillStyle=COL.dim;c.fillText('miss '+pc(mc.l1_miss_rate,1)+(cpt?' %':' % of loads'),X(2)+8,by+48);
   c.fillStyle=COL.line;c.fillRect(X(2)+8,by+58,bw-16,4);c.fillStyle=COL.cyan;c.fillRect(X(2)+8,by+58,(bw-16)*clamp(mc.l1_miss_rate*8,0,1),4);
-  c.fillStyle=COL.dim;c.fillText(f(mc.l2_mpki,1)+' MPKI · coh '+f(mc.coh_mpki,1),X(3)+8,by+48);
+  c.fillStyle=COL.dim;c.fillText(f(mc.l2_mpki,1)+(cpt?' MPKI':' MPKI · coh '+f(mc.coh_mpki,1)),X(3)+8,by+48);
   c.fillStyle=COL.line;c.fillRect(X(3)+8,by+58,bw-16,4);c.fillStyle=COL.amber;c.fillRect(X(3)+8,by+58,(bw-16)*clamp(mc.l2_mpki/40,0,1),4);
-  c.fillStyle=COL.dim;c.fillText('util '+pc(NX.m.bus.util)+' % · wait '+f(mc.tx_wait,1),X(4)+8,by+48);
+  c.fillStyle=COL.dim;c.fillText('util '+pc(NX.m.bus.util)+(cpt?' %':' % · wait '+f(mc.tx_wait,1)),X(4)+8,by+48);
   c.fillStyle=COL.line;c.fillRect(X(4)+8,by+58,bw-16,4);c.fillStyle=NX.m.bus.util>.9?COL.red:COL.cyan;c.fillRect(X(4)+8,by+58,(bw-16)*NX.m.bus.util,4);
   /* write buffer */
   var wy=by+bh+34,wx=X(1),ww=X(3)+bw*.35-wx,sw=ww/T.WB;
@@ -1465,7 +1466,7 @@ NX.page_('inspector',{title:'CPU Pipeline & Cache Snoop Inspector',scope:'cpu',
   build:function(el){
     el.innerHTML='<div class="grid c6 mb">'+stat('in-ipc','IPC','green','')+stat('in-cpi','Effective CPI','','')+stat('in-mpki','L2 misses','','MPKI')+stat('in-coh','Coherence misses','amber','MPKI')+stat('in-mshr','MSHRs in use','','')+stat('in-wb','Write buffer','','')+'</div>'+
       '<div class="grid c-12 mb">'+panel('Coherence state machine','<span id="in-ptag">—</span>','<div id="in-fsm"></div><div class="kin-legend"><span><i style="background:'+COL.cyan+'"></i>processor-initiated (PrRd / PrWr)</span><span><i style="background:'+COL.amber+'"></i>bus-induced (snooped)</span><span>× = transitions on this CPU since selection</span></div>')+
-      panel('Pipeline, write buffer and MSHR table','live · this CPU','<div class="stage"><canvas id="in-pipe" style="height:300px"></canvas></div><div class="kin-legend"><span><i class="dot" style="background:'+COL.green+';color:'+COL.green+'"></i>instructions</span><span><i class="dot" style="background:'+COL.cyan+';color:'+COL.cyan+'"></i>miss / fill</span><span><i class="dot" style="background:'+COL.red+';color:'+COL.red+'"></i>invalidate · queued</span><span><i class="dot" style="background:'+COL.amber+';color:'+COL.amber+'"></i>update · coherence</span><span><i class="dot" style="background:'+COL.violet+';color:'+COL.violet+'"></i>prefetch · write-back</span></div>','hot')+'</div>'+
+      panel('Pipeline, write buffer and MSHR table','live · this CPU','<div class="stage"><canvas id="in-pipe" style="height:300px;min-width:0"></canvas></div><div class="kin-legend"><span><i class="dot" style="background:'+COL.green+';color:'+COL.green+'"></i>instructions</span><span><i class="dot" style="background:'+COL.cyan+';color:'+COL.cyan+'"></i>miss / fill</span><span><i class="dot" style="background:'+COL.red+';color:'+COL.red+'"></i>invalidate · queued</span><span><i class="dot" style="background:'+COL.amber+';color:'+COL.amber+'"></i>update · coherence</span><span><i class="dot" style="background:'+COL.violet+';color:'+COL.violet+'"></i>prefetch · write-back</span></div>','hot')+'</div>'+
       '<div class="grid c-21">'+panel('L2 tag table','shared lines first · <span id="in-tn">0</span> shown','<div class="tblwrap" style="max-height:420px;overflow:auto"><table><thead><tr><th>Set</th><th>Way</th><th>Block address</th><th>Region</th><th>State</th><th>Flags</th><th class="num">Write-run</th><th>Run owner</th></tr></thead><tbody id="in-tags"></tbody></table></div>')+
       '<div>'+panel('Line states in L2','<span id="in-occ">—</span>','<div id="in-states"></div>','mb')+panel('Stall attribution','cycles per instruction','<canvas class="chart sm" id="in-stall"></canvas><div id="in-detail" style="margin-top:8px"></div>')+'</div></div>';
   },
